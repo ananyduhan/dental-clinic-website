@@ -2,28 +2,28 @@
 @tailwind components;
 @tailwind utilities;
 
-/* ─── Design System: Dental Clinic (inspired by Starbucks design language) ── */
+/* ─── Design System: BrightSmile Dental (Starbucks-inspired design language) ── */
 
 @layer base {
   :root {
     /* ── Brand greens ──────────────────────────────────────────────────── */
-    --color-brand:        #006241; /* Starbucks Green — headings, brand moments */
-    --color-cta:          #00754A; /* Green Accent — primary CTAs, filled buttons */
-    --color-feature:      #1E3932; /* House Green — feature bands, footer */
-    --color-uplift:       #2b5148; /* Green Uplift — decorative accents */
-    --color-green-light:  #d4e9e2; /* Pale mint — form valid tint */
+    --color-brand:        #006241;
+    --color-cta:          #00754A;
+    --color-feature:      #1E3932;
+    --color-uplift:       #2b5148;
+    --color-green-light:  #d4e9e2;
 
     /* ── Surfaces ──────────────────────────────────────────────────────── */
-    --color-canvas:       #f2f0eb; /* Neutral Warm — primary page canvas */
-    --color-ceramic:      #edebe9; /* Ceramic — section separators */
-    --color-surface:      #ffffff; /* Card / modal surface */
-    --color-surface-cool: #f9f9f9; /* Neutral Cool — dropdowns, utility containers */
+    --color-canvas:       #f2f0eb;
+    --color-ceramic:      #edebe9;
+    --color-surface:      #ffffff;
+    --color-surface-cool: #f9f9f9;
 
     /* ── Text ──────────────────────────────────────────────────────────── */
-    --color-text:         rgba(0, 0, 0, 0.87);   /* Primary heading / body on light */
-    --color-text-soft:    rgba(0, 0, 0, 0.58);   /* Secondary / metadata on light */
-    --color-text-invert:  rgba(255, 255, 255, 1); /* On dark-green surfaces */
-    --color-text-invert-soft: rgba(255, 255, 255, 0.70); /* Secondary on dark */
+    --color-text:              rgba(0, 0, 0, 0.87);
+    --color-text-soft:         rgba(0, 0, 0, 0.58);
+    --color-text-invert:       rgba(255, 255, 255, 1);
+    --color-text-invert-soft:  rgba(255, 255, 255, 0.70);
 
     /* ── Semantic ──────────────────────────────────────────────────────── */
     --color-error:        #c82014;
@@ -36,12 +36,13 @@
     --color-border-focus: #00754A;
 
     /* ── Radius ────────────────────────────────────────────────────────── */
-    --radius-btn:  50px;  /* Full pill — all buttons */
-    --radius-card: 12px;  /* Cards, modals, tiles */
+    --radius-btn:  50px;
+    --radius-card: 12px;
 
     /* ── Shadows ───────────────────────────────────────────────────────── */
     --shadow-card: 0px 0px 0.5px 0px rgba(0,0,0,0.14), 0px 1px 1px 0px rgba(0,0,0,0.24);
     --shadow-nav:  0 1px 3px rgba(0,0,0,0.1), 0 2px 2px rgba(0,0,0,0.06), 0 0 2px rgba(0,0,0,0.07);
+    --shadow-lg:   0 4px 24px rgba(0,0,0,0.12), 0 1px 4px rgba(0,0,0,0.08);
 
     /* ── Animation ─────────────────────────────────────────────────────── */
     --duration-fast:   150ms;
@@ -50,27 +51,27 @@
     --ease-enter: ease-out;
     --ease-exit:  ease-in;
 
-    /* ── shadcn/ui mapped tokens ───────────────────────────────────────── */
-    --background:    240 10% 97%;   /* ≈ canvas */
-    --foreground:    0 0% 10%;
-    --card:          0 0% 100%;
-    --card-foreground: 0 0% 10%;
-    --popover:       0 0% 100%;
-    --popover-foreground: 0 0% 10%;
-    --primary:       158 100% 22%;  /* ≈ cta green */
-    --primary-foreground: 0 0% 100%;
-    --secondary:     158 30% 93%;
-    --secondary-foreground: 158 60% 20%;
-    --muted:         0 0% 96%;
-    --muted-foreground: 0 0% 40%;
-    --accent:        158 30% 93%;
-    --accent-foreground: 158 60% 20%;
-    --destructive:   4 82% 43%;
+    /* ── shadcn/ui HSL mapped tokens ──────────────────────────────────── */
+    --background:             240 10% 97%;
+    --foreground:             0 0% 10%;
+    --card:                   0 0% 100%;
+    --card-foreground:        0 0% 10%;
+    --popover:                0 0% 100%;
+    --popover-foreground:     0 0% 10%;
+    --primary:                158 100% 22%;
+    --primary-foreground:     0 0% 100%;
+    --secondary:              158 30% 93%;
+    --secondary-foreground:   158 60% 20%;
+    --muted:                  0 0% 96%;
+    --muted-foreground:       0 0% 40%;
+    --accent:                 158 30% 93%;
+    --accent-foreground:      158 60% 20%;
+    --destructive:            4 82% 43%;
     --destructive-foreground: 0 0% 100%;
-    --border:        210 14% 87%;
-    --input:         210 14% 87%;
-    --ring:          158 100% 22%;
-    --radius: 0.5rem;
+    --border:                 210 14% 87%;
+    --input:                  210 14% 87%;
+    --ring:                   158 100% 22%;
+    --radius:                 0.5rem;
   }
 }
 
@@ -80,6 +81,10 @@
     box-sizing: border-box;
   }
 
+  html {
+    scroll-behavior: smooth;
+  }
+
   body {
     background-color: var(--color-canvas);
     color: var(--color-text);
@@ -87,15 +92,16 @@
     letter-spacing: -0.01em;
     line-height: 1.5;
     -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
   }
 
   h1, h2, h3, h4, h5, h6 {
-    letter-spacing: -0.016px;
+    letter-spacing: -0.016em;
     line-height: 1.2;
   }
 
-  /* Image fade-in on load */
   img {
+    opacity: 1;
     transition: opacity 0.3s ease-in;
   }
 }
@@ -105,8 +111,67 @@
     text-wrap: balance;
   }
 
-  /* Button active micro-interaction — universal */
+  /* Button active micro-interaction — universal across the design system */
   .btn-active:active {
     transform: scale(0.95);
+  }
+
+  /* Feature band pattern */
+  .feature-band {
+    background-color: var(--color-feature);
+    color: var(--color-text-invert);
+  }
+
+  /* Canvas section */
+  .canvas-section {
+    background-color: var(--color-canvas);
+  }
+
+  /* Ceramic section */
+  .ceramic-section {
+    background-color: var(--color-ceramic);
+  }
+
+  /* Focus ring using design token */
+  .focus-ring {
+    @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-cta)] focus-visible:ring-offset-2;
+  }
+
+  /* Skeleton shimmer animation */
+  .skeleton-shimmer {
+    background: linear-gradient(
+      90deg,
+      var(--color-ceramic) 25%,
+      var(--color-canvas) 50%,
+      var(--color-ceramic) 75%
+    );
+    background-size: 200% 100%;
+    animation: shimmer 1.5s infinite;
+  }
+
+  @keyframes shimmer {
+    0%   { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+  }
+
+  /* Fade-in animation */
+  @keyframes fade-in {
+    from { opacity: 0; transform: translateY(8px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  .animate-fade-in {
+    animation: fade-in var(--duration-normal) var(--ease-enter) both;
+  }
+
+  /* Slide-in from right (mobile nav) */
+  @keyframes slide-in-right {
+    from { transform: translateX(100%); }
+    to   { transform: translateX(0); }
+  }
+
+  @keyframes slide-out-right {
+    from { transform: translateX(0); }
+    to   { transform: translateX(100%); }
   }
 }

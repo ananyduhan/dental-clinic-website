@@ -58,10 +58,18 @@ export interface ApiSuccess<T = unknown> {
   message?: string;
 }
 
+/**
+ * Error response shape, per docs/api-conventions.md. The error payload is
+ * nested under `error` so a client can discriminate on the presence of the key
+ * alone, without inspecting the status code.
+ */
 export interface ApiError {
-  error: string;
-  code: string;
-  details?: unknown;
+  error: {
+    code: string;
+    message: string;
+    /** Field-level validation messages, keyed by dotted path. */
+    details?: Record<string, string>;
+  };
 }
 
 export type ApiResponse<T = unknown> = ApiSuccess<T> | ApiError;

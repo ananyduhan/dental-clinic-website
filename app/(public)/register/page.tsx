@@ -14,7 +14,7 @@ import { useToast } from "@/hooks/use-toast";
 
 function PasswordStrength({ password }: { password: string }) {
   const checks = [
-    { label: "At least 8 characters", ok: password.length >= 8 },
+    { label: "At least 10 characters", ok: password.length >= 10 },
     { label: "One uppercase letter",  ok: /[A-Z]/.test(password) },
     { label: "One number",            ok: /[0-9]/.test(password) },
   ];
@@ -81,10 +81,10 @@ export default function RegisterPage() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(data),
         });
-        const json = await res.json() as { error?: string };
+        const json = await res.json() as { error?: { message?: string } };
 
         if (!res.ok) {
-          toast({ title: "Registration failed", description: json.error ?? "Please try again.", variant: "destructive" });
+          toast({ title: "Registration failed", description: json.error?.message ?? "Please try again.", variant: "destructive" });
           return;
         }
 

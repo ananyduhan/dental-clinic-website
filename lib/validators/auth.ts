@@ -15,7 +15,7 @@ export const registerSchema = z
       .regex(/^\+?[1-9]\d{6,14}$/, "Invalid phone number"),
     password: z
       .string()
-      .min(8, "Password must be at least 8 characters")
+      .min(10, "Password must be at least 10 characters")
       .regex(/[A-Z]/, "Password must contain at least one uppercase letter")
       .regex(/[0-9]/, "Password must contain at least one number"),
     confirmPassword: z.string(),
@@ -34,7 +34,7 @@ export const resetPasswordSchema = z
     token: z.string().min(1),
     password: z
       .string()
-      .min(8, "Password must be at least 8 characters")
+      .min(10, "Password must be at least 10 characters")
       .regex(/[A-Z]/, "Password must contain at least one uppercase letter")
       .regex(/[0-9]/, "Password must contain at least one number"),
     confirmPassword: z.string(),

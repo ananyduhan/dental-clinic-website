@@ -35,8 +35,8 @@ export default function ForgotPasswordPage() {
         });
 
         if (!res.ok) {
-          const json = await res.json() as { error?: string };
-          toast({ title: "Error", description: json.error ?? "Please try again.", variant: "destructive" });
+          const json = await res.json() as { error?: { message?: string } };
+          toast({ title: "Error", description: json.error?.message ?? "Please try again.", variant: "destructive" });
           return;
         }
 

@@ -228,19 +228,10 @@ async function main() {
     };
   });
 
-  for (const data of appointmentData) {
-    await prisma.appointment.upsert({
-      where: {
-        dentistId_appointmentDate_startTime: {
-          dentistId: data.dentistId,
-          appointmentDate: data.appointmentDate,
-          startTime: data.startTime,
-        },
-      },
-      update: {},
-      create: data,
-    });
-  }
+  // Plain create, not upsert: the compound @@unique this used to key off was
+  // removed in favour of a partial unique index (see the migration). The seed
+  // already truncates every table above, so there is nothing to upsert against.
+  await prisma.appointment.createMany({ data: appointmentData });
 
   console.log(`Seeded:`);
   console.log(`  1 admin (admin@demo.com / Admin123!)`);

@@ -1,17 +1,21 @@
 import NextAuth from "next-auth";
 import Credentials from "next-auth/providers/credentials";
 import { prisma } from "@/lib/prisma";
+import { authConfig } from "@/lib/auth.config";
 import { loginSchema } from "@/lib/validators/auth";
 import { ForbiddenError, UnauthorizedError } from "@/lib/errors";
 import bcrypt from "bcryptjs";
 import type { Role } from "@prisma/client";
 
+/**
+ * Node-runtime NextAuth instance: edge-safe `authConfig` plus the Credentials
+ * provider, which needs Prisma and bcrypt and therefore cannot run on the edge.
+ *
+ * Import this from route handlers, server components, and server actions.
+ * `middleware.ts` deliberately imports `lib/auth.config.ts` instead.
+ */
 export const { handlers, auth, signIn, signOut } = NextAuth({
-  session: { strategy: "jwt" },
-  pages: {
-    signIn: "/login",
-    error: "/login",
-  },
+  ...authConfig,
   providers: [
     Credentials({
       async authorize(credentials) {
@@ -40,26 +44,10 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       },
     }),
   ],
-  callbacks: {
-    jwt({ token, user }) {
-      if (user) {
-        token.id = user.id;
-        token.role = (user as { role: Role }).role;
-        token.firstName = (user as { firstName: string }).firstName;
-        token.lastName = (user as { lastName: string }).lastName;
-        token.isEmailVerified = (user as { isEmailVerified: boolean }).isEmailVerified;
-      }
-      return token;
-    },
-    session({ session, token }) {
-      session.user.id = token.id as string;
-      session.user.role = token.role as Role;
-      session.user.firstName = token.firstName as string;
-      session.user.lastName = token.lastName as string;
-      session.user.isEmailVerified = token.isEmailVerified as boolean;
-      return session;
-    },
-  },
+  // `callbacks` (jwt, session) live in lib/auth.config.ts so middleware shares
+  // exactly the same token shape. Do not redeclare them here — spreading
+  // authConfig above already supplies them, and a duplicate key would silently
+  // win over the shared one.
 });
 
 export async function requireRole(...roles: Role[]) {

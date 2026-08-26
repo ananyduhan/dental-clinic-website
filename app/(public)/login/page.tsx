@@ -14,10 +14,28 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 
+/**
+ * Resolve where to send the user after a successful sign-in.
+ *
+ * Only same-origin, path-relative destinations are honoured. A crafted
+ * `?callbackUrl=https://evil.example/login` would otherwise turn this page into
+ * an open redirect — a convincing phishing hop, since the user really did just
+ * authenticate on the genuine site. `//evil.example` is protocol-relative and is
+ * rejected for the same reason.
+ */
+function safeRedirectTarget(raw: string | null): string {
+  const fallback = "/dashboard";
+  if (!raw) return fallback;
+  if (!raw.startsWith("/") || raw.startsWith("//")) return fallback;
+  return raw;
+}
+
 function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const next = searchParams.get("next") ?? "/dashboard";
+  // `callbackUrl` is what middleware.ts and NextAuth both set; `next` is kept
+  // for any older links still pointing here.
+  const next = safeRedirectTarget(searchParams.get("callbackUrl") ?? searchParams.get("next"));
   const { toast } = useToast();
 
   const [showPassword, setShowPassword] = React.useState(false);

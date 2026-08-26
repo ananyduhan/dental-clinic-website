@@ -4,7 +4,13 @@ generator client {
 
 datasource db {
   provider = "postgresql"
+  // Pooled (PgBouncer, port 6543). Serverless functions open far more
+  // connections than a direct link survives, so runtime queries go through it.
   url      = env("DATABASE_URL")
+  // Direct (port 5432). Migrations must bypass the pooler: PgBouncer's
+  // transaction mode does not support the advisory locks and prepared
+  // statements that `prisma migrate` relies on.
+  directUrl = env("DIRECT_URL")
 }
 
 enum Role {
@@ -125,8 +131,12 @@ model Appointment {
   dentist Dentist @relation(fields: [dentistId], references: [id])
   service Service @relation(fields: [serviceId], references: [id])
 
-  // DB-level uniqueness enforces no double-booking for the same dentist slot
-  @@unique([dentistId, appointmentDate, startTime])
+  // DB-level uniqueness enforces no double-booking for the same dentist slot.
+  // Deliberately NOT a Prisma @@unique: it must be a PARTIAL index scoped to
+  // active statuses, otherwise a CANCELLED appointment permanently blocks its
+  // slot from ever being rebooked. Prisma's DSL cannot express `WHERE`, so the
+  // index `appointments_active_slot_unique` is created as raw SQL in the
+  // migration. See docs/booking-flow.md — "Layer 3: DB-enforced uniqueness".
   @@index([patientId])
   @@index([dentistId, appointmentDate])
   @@index([appointmentDate, status])

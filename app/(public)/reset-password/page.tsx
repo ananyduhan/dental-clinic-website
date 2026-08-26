@@ -40,10 +40,10 @@ function ResetPasswordForm() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(data),
         });
-        const json = await res.json() as { error?: string };
+        const json = await res.json() as { error?: { message?: string } };
 
         if (!res.ok) {
-          toast({ title: "Reset failed", description: json.error ?? "The link may have expired. Please request a new one.", variant: "destructive" });
+          toast({ title: "Reset failed", description: json.error?.message ?? "The link may have expired. Please request a new one.", variant: "destructive" });
           return;
         }
 
@@ -97,7 +97,7 @@ function ResetPasswordForm() {
             Choose a new password
           </h1>
           <p className="text-sm text-[var(--color-text-soft)]">
-            Must be at least 8 characters with one uppercase and one number.
+            Must be at least 10 characters with one uppercase and one number.
           </p>
         </div>
 

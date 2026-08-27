@@ -77,8 +77,8 @@ model Availability {
   id         String    @id @default(uuid())
   dentistId  String    @map("dentist_id")
   dayOfWeek  DayOfWeek @map("day_of_week")
-  startTime  String    @map("start_time") // "HH:mm" UTC
-  endTime    String    @map("end_time")   // "HH:mm" UTC
+  startTime  String    @map("start_time") // "HH:mm" clinic-local wall clock
+  endTime    String    @map("end_time")   // "HH:mm" clinic-local wall clock
   isActive   Boolean   @default(true) @map("is_active")
 
   dentist Dentist @relation(fields: [dentistId], references: [id], onDelete: Cascade)
@@ -118,8 +118,8 @@ model Appointment {
   dentistId       String            @map("dentist_id")
   serviceId       String            @map("service_id")
   appointmentDate DateTime          @map("appointment_date") @db.Date
-  startTime       String            @map("start_time") // "HH:mm" UTC
-  endTime         String            @map("end_time")   // "HH:mm" UTC
+  startTime       String            @map("start_time") // "HH:mm" clinic-local
+  endTime         String            @map("end_time")   // "HH:mm" clinic-local
   status          AppointmentStatus @default(PENDING)
   notes           String?           @db.Text
   adminNotes      String?           @map("admin_notes") @db.Text

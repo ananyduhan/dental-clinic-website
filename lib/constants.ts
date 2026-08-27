@@ -6,6 +6,15 @@
  */
 
 /**
+ * Fallback when `CLINIC_TIMEZONE` is unset or invalid.
+ *
+ * Declared before `CLINIC_TIMEZONE` on purpose: `resolveTimezone` runs during
+ * module initialisation, and a `const` below that point is still in its
+ * temporal dead zone when the fallback path is taken.
+ */
+const DEFAULT_TIMEZONE = "Australia/Sydney";
+
+/**
  * IANA timezone of the clinic.
  *
  * Everything in the database is UTC. This is the single conversion boundary —
@@ -48,8 +57,6 @@ export const DEFAULT_PAGE_SIZE = 20;
 
 /** Hard ceiling on page size, so a crafted `?limit=` cannot dump the table. */
 export const MAX_PAGE_SIZE = 100;
-
-const DEFAULT_TIMEZONE = "Australia/Sydney";
 
 /**
  * Validate that a timezone string is one the runtime actually knows.

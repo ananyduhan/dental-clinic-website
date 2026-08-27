@@ -23,7 +23,7 @@
 | **Server actions** | **0% — none exist** |
 | Middleware | ✅ done (Phase 1) |
 | Migrations | ✅ applied to Supabase; partial index verified in-database |
-| Tests | ~35% — 67 unit tests; no integration, no Playwright e2e |
+| Tests | ~45% — 104 unit tests; no integration, no Playwright e2e |
 | Deploy/observability | ~10% — no `vercel.json`, Sentry installed but unconfigured |
 
 **Overall: ~40%.** The presentation half is nearly done; the functional half is
@@ -380,30 +380,119 @@ dev-console fallback added in this phase, which is exactly what it is for.
 
 ---
 
-## Phase 3 — Slot engine rewrite (2.5 days)
+## Phase 3 — Slot engine rewrite ✅ DONE
 
 Pure functions only. No DB calls inside the generator — that is what makes it
 testable, and `docs/booking-flow.md` is emphatic about it.
 
-1. **Rewrite `lib/slots.ts`** to the spec signature: `GenerateSlotsInput → Slot[]`.
-   Use `date-fns-tz` exclusively; `toLocaleString` is explicitly banned by the doc.
-2. **Implement the 5-step algorithm:** blocked-date check → resolve day-of-week in
-   clinic tz → build UTC working window → enumerate on the 15-min grid → filter
-   overlaps with strict inequalities (`s < a.end && e > a.start`, so back-to-back
-   bookings are legal).
-3. **DST, both directions.** Spring-forward: drop slots whose local time does not
-   round-trip through `utcToZonedTime`. Fall-back: dedupe on the ISO UTC string
-   via a `Set`.
-4. **`lib/availability.ts` — new.** The DB-touching wrapper: fetch availability,
-   blocked dates, and existing PENDING/CONFIRMED appointments, then hand off to
-   the pure generator. This is the seam between I/O and logic.
-5. **Replace `tests/unit/slots.test.ts`** with the four suites the doc names:
-   `slots.basic`, `slots.overlap`, `slots.dst`, `slots.duration`.
+| File | Action | Result |
+|---|---|---|
+| `lib/slots.ts` | **rewrite** | ✅ `generateSlots(GenerateSlotsInput): Slot[]`, plus `clinicDateKey`, `clinicTimeToUtc`, `utcToClinicTime`, `intervalsOverlap` |
+| `lib/availability.ts` | **new** | ✅ `getAvailableSlots` (one dentist) and `getAvailableSlotsAcrossDentists` (the "No preference" union) |
+| `tests/unit/slots/` | **new** | ✅ `slots.basic` (17) · `slots.overlap` (10) · `slots.dst` (9) · `slots.duration` (10) — 46 tests |
+| `tests/unit/slots.test.ts` | **deleted** | ✅ replaced; it tested the old string-based algorithm |
+| `lib/constants.ts` | fix | ✅ temporal-dead-zone bug — **see below** |
+| `prisma/schema.prisma` | fix | ✅ comments claimed `start_time`/`end_time` are UTC; `docs/database.md:34` says clinic-local. Comments only, no migration |
+| `types/index.ts` | fix | ✅ removed the dead `TimeSlot` type (old output shape, nothing referenced it) |
+| `docs/booking-flow.md` | fix | ✅ v2 `date-fns-tz` names, test paths, DST rationale, validator filename |
 
-**Gate:** all four suites green, with the DST cases explicitly asserted at 02:00
-Sydney in both directions.
+**Gate met:** `typecheck` ✅ · `lint` ✅ · `test` ✅ **104/104** (was 67) · `build` ✅
 
----
+### What actually changed in the algorithm
+
+The old generator stepped by service duration over `"HH:mm"` strings with no
+timezone handling at all. The new one steps a UTC cursor on a 15-minute grid and
+converts only at the edges, via `date-fns-tz` exclusively.
+
+Note that `date-fns-tz` v3 renamed the two functions the doc named: they are
+`fromZonedTime` / `toZonedTime` now, not `zonedTimeToUtc` / `utcToZonedTime`.
+The doc has been corrected.
+
+### DST: the round-trip check does not do what the doc assumed
+
+Measured against `date-fns-tz` 3.2.0 at both Sydney transitions:
+
+| Case | `fromZonedTime` behaviour |
+|---|---|
+| Spring forward, `02:00` on 2026-10-04 | → `15:00Z`, which is **01:00 local** — resolves *backwards* into the previous hour |
+| Fall back, `02:00` on 2026-04-05 | → `16:00Z`, the **second** (AEST/standard) occurrence |
+
+Two consequences the plan did not anticipate:
+
+1. **Stepping the cursor in UTC already prevents the spring-forward over-count
+   from candidates**, because UTC is continuous — the local clock jumps from
+   01:45 to 03:00 on its own and no nonexistent time is ever generated. The
+   over-count instead comes from the *window bound*: an availability row
+   declared 02:00–05:00 has `windowStartUtc` resolve back to 01:00 local, and
+   the round-trip check does **not** catch that (01:00 round-trips fine). The
+   fix is a re-check of each candidate against the window's declared **local**
+   bounds. `slots.dst.test.ts` covers it.
+2. **The fall-back case is decided by the storage model, not by preference.** An
+   appointment is `(appointment_date, "HH:mm")` in clinic-local terms, so of the
+   two real 02:00 instants only one is representable — and two would collide on
+   `appointments_active_slot_unique` anyway. The round-trip check keeps exactly
+   the occurrence `clinicTimeToUtc` resolves to, which is by construction the
+   one the booking path will re-derive from the patient's chosen time. For
+   Sydney that is the second occurrence, matching what the doc asked for.
+
+So both DST directions fall out of two cheap checks, and generator and booker
+can never disagree about which instant a displayed "HH:mm" means. The `Set` on
+the ISO UTC string is retained, but its real job is deduping overlapping
+availability rows.
+
+### A latent crash in `lib/constants.ts`, found by the first test that imported it
+
+`CLINIC_TIMEZONE` is initialised at module load by `resolveTimezone(...)`, which
+returns `DEFAULT_TIMEZONE` — a `const` declared *below* it. Function declarations
+hoist; `const` does not. So the fallback path threw:
+
+```
+ReferenceError: Cannot access 'DEFAULT_TIMEZONE' before initialization
+```
+
+Invisible until now because every previous caller had `CLINIC_TIMEZONE` set in
+`.env` and took the early-return branch. Vitest does not load `.env`, so the
+first test to import the module hit it immediately. The file's own header
+promises that "a missing variable degrades predictably instead of failing at
+import time" — it did the opposite. `DEFAULT_TIMEZONE` now precedes its use.
+
+**Worth knowing for Phase 6:** a Vercel deploy that forgets `CLINIC_TIMEZONE`
+would have crashed every route that imports `lib/constants.ts`, at import time,
+with an error naming neither the variable nor the cause.
+
+### Deviations from the spec, and why
+
+1. **Day-of-week is read from `date`'s UTC parts, not by converting to the
+   clinic timezone.** The doc says convert; that works for Sydney but is wrong
+   for any zone behind UTC, where UTC midnight is the *previous* local day.
+   Since `date` is defined as UTC midnight *of the clinic-local day*, its UTC
+   parts already are the clinic-local calendar date.
+2. **`timezone` and `stepMinutes` are both optional**, defaulting to
+   `CLINIC_TIMEZONE` and `SLOT_STEP_MINUTES`. The doc's type marked `timezone`
+   required while its comment said "'Australia/Sydney' by default".
+3. **A non-positive `stepMinutes` throws `RangeError`; a non-positive duration
+   returns `[]`.** The first is a programming error, the second is bad service
+   data. The loop also has a hard candidate cap so it cannot spin.
+4. **`getAvailableSlotsAcrossDentists` was built now rather than in Phase 5.**
+   `docs/booking-flow.md` puts the "No preference" union in step 3 of the
+   wizard, which is this phase's surface, and `/api/availability` needs it. Three
+   queries total; per-dentist generation runs in memory.
+5. **`serviceDurationMinutes` is an input to the wrapper, not a `serviceId` it
+   looks up.** Every caller has to fetch the service anyway to check
+   `isActive` — see the edge case table in `docs/booking-flow.md`.
+
+### Verified against the live database
+
+Not part of the stated gate, but `lib/availability.ts` is the one piece unit
+tests cannot reach. Against the seeded Sydney project:
+
+| Check | Result |
+|---|---|
+| Dr. Smith, Friday 09:00–15:00, 30-min service | 19 slots, 10:00 → 14:30 ✅ |
+| Existing 09:00–10:00 appointment | 09:00–09:45 correctly withheld ✅ |
+| 10:00 Sydney (AEST, +10) | `2026-08-28T00:00:00.000Z` ✅ |
+| "No preference" union across 3 dentists | 35 slots, starting 08:00 ✅ |
+| A Sunday, nobody rostered | 0 slots ✅ |
 
 ## Phase 4 — Appointment domain (3.5 days)
 
@@ -519,7 +608,7 @@ send, and no double-send when re-run within the same hour.
 | 0 — Runnable | 0.5d | ✅ done |
 | 1 — Foundation | 1d | ✅ done |
 | 2 — Auth | 1.5d | ✅ done, e2e verified |
-| 3 — Slot engine | 2.5d | |
+| 3 — Slot engine | 2.5d | ✅ done, verified live |
 | 4 — Domain | 3.5d | |
 | 5 — Actions + handlers | 4d | |
 | 6 — Cron + deploy | 2d | |

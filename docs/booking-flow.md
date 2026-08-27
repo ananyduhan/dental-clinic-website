@@ -64,7 +64,7 @@ type GenerateSlotsInput = {
     endUtc: Date;
   }>;
   now: Date;                     // injected, never read from `new Date()` inside the function
-  timezone: string;              // 'Australia/Sydney' by default
+  timezone?: string;             // defaults to CLINIC_TIMEZONE ('Australia/Sydney')
   stepMinutes?: number;          // slot granularity, default 15
 };
 
@@ -78,7 +78,7 @@ type Slot = {
 ### Algorithm
 
 1. **Check blocked dates.** If any `blockedDates` entry matches `date`, return `[]`.
-2. **Resolve day of week.** Convert `date` to the clinic timezone, get its `dayOfWeek`. Fetch the matching `availability` row. If none or `is_active = false`, return `[]`.
+2. **Resolve day of week.** `date` is UTC midnight *of the clinic-local day*, so its UTC parts already are the clinic-local calendar date — read them directly rather than converting, which would shift the day for any zone behind UTC. Fetch the matching `availability` row. If none or `is_active = false`, return `[]`.
 3. **Build the working window.** Interpret `start_time` and `end_time` from the availability row as clinic-local times on `date`, then convert to UTC. These become `windowStartUtc` and `windowEndUtc`.
 4. **Enumerate candidate slots.** Starting at `windowStartUtc`, step forward by `stepMinutes` (default 15). For each candidate start `s`:
    - Compute `e = s + serviceDurationMinutes`.
@@ -95,17 +95,19 @@ Stepping by service duration creates ugly alignment problems: if the first appoi
 
 - Everything in the DB is UTC (`timestamptz` for timestamps, `date` for the appointment date, `time` for availability start/end).
 - The `appointment_date` column stores the clinic-local calendar date, not a UTC date. Conversion happens at the edges — never mix UTC dates with local dates in the same code path.
-- `date-fns-tz`'s `zonedTimeToUtc` and `utcToZonedTime` are the only sanctioned conversion functions. Do not use `toLocaleString`.
+- `date-fns-tz`'s `fromZonedTime` and `toZonedTime` (v2 called these `zonedTimeToUtc` / `utcToZonedTime`) are the only sanctioned conversion functions. `formatInTimeZone` is the sanctioned way to render one. Do not use `toLocaleString`.
 - The clinic timezone is `Australia/Sydney`, defined as the constant `CLINIC_TIMEZONE` in `lib/constants.ts`. Read from env in case it ever needs to change.
 
 ### Daylight saving
 
-DST transitions matter twice a year. Two cases to handle:
+DST transitions matter twice a year.
 
-- **Spring forward (02:00 → 03:00):** slots between 02:00 and 03:00 don't exist that day. `zonedTimeToUtc` maps them to 03:00 UTC equivalent, so the generator will over-count. Add an explicit check: if the local time of the generated slot does not round-trip (`utcToZonedTime(s, tz)` formatted back is not what we started with), drop it.
-- **Fall back (03:00 → 02:00):** 02:00–03:00 happens twice. We pick the second occurrence (standard time) by always passing the explicit offset to `zonedTimeToUtc`. Duplicates are filtered by a `Set` on the ISO UTC string.
+The generator steps the cursor along **UTC**, not local time, so the cursor itself can never stall or skip at a transition. Two checks then reconcile the local clock:
 
-These are covered in `tests/slots.dst.test.ts`.
+- **Spring forward (02:00 → 03:00):** slots between 02:00 and 03:00 don't exist that day. `fromZonedTime('02:00')` resolves *backwards* to 01:00, so a window declared 02:00–05:00 would start generating an hour early and over-count. Each candidate is re-checked against the window's declared **local** bounds and dropped if it falls outside them.
+- **Fall back (03:00 → 02:00):** 02:00–03:00 happens twice, and both are real instants — but an appointment is stored as `(appointment_date, "HH:mm")` in clinic-local terms, so only one is representable, and two would collide on `appointments_active_slot_unique`. Each candidate must round-trip: `fromZonedTime(dateKey, formatInTimeZone(s, tz, 'HH:mm'))` has to equal `s`. That keeps exactly the occurrence the booking path re-derives from the patient's chosen time — for Australia/Sydney, the second (standard time) one. A `Set` on the ISO UTC string dedupes across overlapping availability rows.
+
+These are covered in `tests/unit/slots/slots.dst.test.ts`, asserted at 02:00 Sydney in both directions.
 
 ### Output size
 
@@ -257,7 +259,7 @@ Covered in `docs/runbook.md` operationally. Booking-relevant rules:
 
 ## Validation Schemas
 
-All in `lib/validators/booking.ts`. Highlights:
+All in `lib/validators/appointment.ts` (the doc previously said `booking.ts`). Highlights:
 
 ```ts
 export const createAppointmentSchema = z.object({
@@ -304,7 +306,7 @@ Notes:
 
 ## Testing
 
-Unit tests in `tests/slots/`:
+Unit tests in `tests/unit/slots/` (vitest collects `tests/unit/**`):
 
 - `slots.basic.test.ts` — happy paths, empty schedules, past-slot filtering.
 - `slots.overlap.test.ts` — edge-to-edge bookings, nested bookings, full-day blocks.

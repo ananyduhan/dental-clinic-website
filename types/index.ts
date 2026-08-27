@@ -35,13 +35,6 @@ export type AppointmentWithRelations = Appointment & {
   service: Service;
 };
 
-// Slot types for booking flow
-export interface TimeSlot {
-  startTime: string; // "HH:mm" format
-  endTime: string;   // "HH:mm" format
-  available: boolean;
-}
-
 // Session user type extending NextAuth
 export interface SessionUser {
   id: string;

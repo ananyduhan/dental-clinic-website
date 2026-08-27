@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
 import { Toaster } from "@/components/ui/toaster";
+import { SentryInit } from "@/components/shared/sentry-init";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -16,7 +17,13 @@ export const metadata: Metadata = {
   },
   description:
     "Book your dental appointment online at BrightSmile Dental, Sydney. General dentistry, cosmetic treatments, orthodontics, and emergency care.",
-  keywords: ["dental clinic", "dentist", "Sydney", "dental appointment", "teeth whitening"],
+  keywords: [
+    "dental clinic",
+    "dentist",
+    "Sydney",
+    "dental appointment",
+    "teeth whitening",
+  ],
 };
 
 export default function RootLayout({
@@ -29,6 +36,7 @@ export default function RootLayout({
       <body className="font-sans antialiased">
         {children}
         <Toaster />
+        <SentryInit />
       </body>
     </html>
   );

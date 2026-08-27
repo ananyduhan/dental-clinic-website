@@ -6,7 +6,7 @@
 
 ## Project
 
-**{{Clinic Name}}** — a production web app for a dental clinic. It handles:
+**BrightSmile Dental** — a production web app for a dental clinic. It handles:
 
 - Public marketing site (landing, about, services, dentists, contact)
 - Patient registration, login, profile
@@ -36,7 +36,7 @@
 | WhatsApp | Twilio WhatsApp Business API | |
 | Scheduled jobs | **Vercel Cron** (NOT node-cron — serverless incompatible) | Configured in `vercel.json` |
 | Excel export | `xlsx` | |
-| Dates | `date-fns` + `date-fns-tz` | Clinic timezone: **{{Australia/Sydney}}** |
+| Dates | `date-fns` + `date-fns-tz` | Clinic timezone: **Australia/Sydney** |
 | Tests | Vitest (unit) + Playwright (e2e) | |
 | Hosting | Vercel | |
 | Storage | Supabase Storage | Dentist profile photos |

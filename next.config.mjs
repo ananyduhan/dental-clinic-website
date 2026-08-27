@@ -10,6 +10,11 @@ const nextConfig = {
     ],
   },
   experimental: {
+    /**
+     * Enables `instrumentation.ts`, which is where Sentry is initialised for
+     * the Node and edge runtimes. Required in Next 14; the default in 15.
+     */
+    instrumentationHook: true,
     serverActions: {
       allowedOrigins: ["localhost:3000"],
     },

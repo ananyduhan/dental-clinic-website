@@ -19,16 +19,17 @@
 | Prisma schema, seed script | ~95% — one bug, one missing column |
 | `lib/` helpers (email, whatsapp, export, rate-limit, errors, auth config) | ~85% — written, but nothing calls them |
 | Zod validators | ~90% — auth aligned to `security.md`; booking fields still drift |
-| **API route handlers** | ✅ 100% — all replaced, 6 routes added (`/api/cron` awaits Phase 6) |
+| **API route handlers** | ✅ 100% — all replaced, 7 routes added including `/api/cron/reminders` |
 | **Server actions** | ✅ 100% — `lib/actions/`, 15 actions behind a typed result wrapper |
 | Middleware | ✅ done (Phase 1) |
 | Migrations | ✅ applied to Supabase; partial index verified in-database |
-| Tests | ~65% — 134 unit + 26 integration tests; no Playwright e2e |
-| Deploy/observability | ~10% — no `vercel.json`, Sentry installed but unconfigured |
+| Tests | ✅ 134 unit + 36 integration + 3 Playwright e2e |
+| Deploy/observability | ✅ hourly cron in `vercel.json`, Sentry initialised (no source maps yet) |
 
-**Overall: ~85%.** Phases 0-5 are done. A patient can register, verify, book,
-view, and cancel; an admin can manage everything and export. What remains is
-Phase 6 — reminders, cron, Sentry, and deploy.
+**Overall: the server tier is done.** All six phases are complete. A patient can
+register, verify, book, view, and cancel; an admin manages everything and
+exports; reminders go out hourly. What is left is the launch checklist at the
+bottom of this document, not more building.
 
 ---
 
@@ -177,9 +178,8 @@ seed data, so it was a recreate plus `migrate deploy` and `db:seed`.
 browser -> Supabase**, and Vercel defaults to `iad1` (Washington DC). Deploying
 with defaults against a Tokyo database would have meant US functions, Japanese
 database, Australian patients. `vercel.json` now pins functions to `syd1` so they
-are co-located with the database and close to patients. Phase 6 adds the cron
-entry to that same file — omitted for now because a cron pointing at a
-nonexistent `/api/cron/reminders` would fail to deploy.
+are co-located with the database and close to patients. Phase 6 added the hourly cron
+entry to that same file, once `/api/cron/reminders` existed to point it at.
 
 The project ref lives only in `.env`; nothing in the repo hardcodes it, so the
 move was a two-line change.
@@ -771,26 +771,150 @@ through `updateDentistAction`, but there is no upload UI and no Supabase Storage
 integration. **Add the keys and this becomes a small, self-contained piece of
 work; until then a dentist photo can only be set to an existing URL.**
 
-## Phase 6 — Cron, reminders, deploy (2 days)
+## Phase 6 — Cron, reminders, deploy ✅ DONE
 
-1. **`app/api/cron/reminders/route.ts`** — note the path. The stub is at
-   `/api/cron`; the spec says `/api/cron/reminders`. Verify
-   `Authorization: Bearer ${CRON_SECRET}` **before touching the database**.
-2. **`vercel.json` — new.** Without it the cron never fires, no matter how correct
-   the endpoint is. Hourly schedule.
-3. **Reminder logic:** the 23–25h window query; WhatsApp then email; flip
-   `reminderSent = true` in the same transaction as the read. Set it **even when
-   both providers fail** — `booking-flow.md` is deliberate here: a late reminder is
-   worse than none. Sentry alerts, ops calls the patient.
-4. **Sentry:** `sentry.client.config.ts`, `sentry.server.config.ts`,
-   `sentry.edge.config.ts`. The package is installed and has never been imported.
-5. **`tests/e2e/book.spec.ts`** — the three Playwright scenarios the doc names.
-6. **`README.md`** — still untouched `create-next-app` boilerplate.
+| File | Action | Result |
+|---|---|---|
+| `lib/reminders.ts` | **new** | ✅ the 23-25h sweep, claim-before-send |
+| `app/api/cron/reminders/route.ts` | **new** | ✅ constant-time `CRON_SECRET` check before any DB access |
+| `app/api/cron/route.ts` | **deleted** | ✅ the stub was at the wrong path |
+| `vercel.json` | extend | ✅ hourly cron added to the existing `syd1` pin |
+| `sentry.{client,server,edge}.config.ts`, `sentry.shared.ts` | **new** | ✅ initialised via `instrumentation.ts` |
+| `components/shared/sentry-init.tsx` | **new** | ✅ browser init without `withSentryConfig` |
+| `playwright.config.ts`, `tests/e2e/` | **new** | ✅ 3 scenarios, all green |
+| `tests/integration/reminders.test.ts` | **new** | ✅ 10 tests |
+| `lib/auth.config.ts` | fix | ✅ `trustHost` — **a production bug, see below** |
+| `README.md` | rewrite | ✅ was untouched `create-next-app` boilerplate |
+| `CLAUDE.md` | fix | ✅ `{{Clinic Name}}` → BrightSmile Dental, `{{Australia/Sydney}}` → Australia/Sydney |
 
-**Gate:** curl the cron endpoint with and without the secret. Confirm exactly one
-send, and no double-send when re-run within the same hour.
+**Gate met:** `typecheck` ✅ · `lint` ✅ · `test` ✅ 134/134 · `build` ✅ ·
+`test:integration` ✅ **36/36** (was 26) · `e2e` ✅ **3/3**
 
----
+### The e2e suite immediately found a production bug
+
+Every authenticated request in a production build answered 500:
+
+```
+[auth][error] UntrustedHost: Host must be trusted. URL was: http://localhost:3000/api/auth/session
+```
+
+NextAuth v5 refuses any request whose host it cannot verify, and outside
+development it only auto-trusts when it detects Vercel. `pnpm dev` was fine, so
+five phases of curl-and-browser testing never touched it — the first `pnpm build
+&& pnpm start` did. Fixed with `trustHost: true` in `authConfig`.
+
+**On Vercel this would probably have worked**, since the SDK auto-detects
+`VERCEL=1`. But `pnpm start` was broken for anyone running the production build
+locally, the runbook's own deploy smoke test would have been the first thing to
+hit it on a non-Vercel host, and relying on provider auto-detection for
+something this load-bearing is not a decision anyone made deliberately.
+
+This is the argument for e2e against a production build rather than a dev
+server, in one bug.
+
+### Reminders: claim-before-send, not send-inside-a-transaction
+
+`docs/booking-flow.md` says the `reminder_sent = true` flip should happen "in the
+same transaction as the DB read". Implemented literally that means an
+interactive Prisma transaction wrapping two third-party HTTP calls:
+
+```ts
+await prisma.$transaction(async (tx) => {
+  await sendWhatsApp(...);   // Twilio, over the network
+  await sendEmail(...);      // Resend, over the network
+  await tx.update({ reminderSent: true });
+});
+```
+
+Prisma's default interactive-transaction timeout is 5 seconds. Twilio plus
+Resend can exceed that on a bad day, and every second is a Postgres transaction
+held open on a pooled serverless connection. That is a connection-exhaustion
+bug waiting for the clinic's busiest morning.
+
+**What was built instead:** claim the appointment first with a conditional
+update on `reminder_sent = false`, then send outside any transaction.
+
+```ts
+const claim = await prisma.appointment.updateMany({
+  where: { id, reminderSent: false },
+  data: { reminderSent: true },
+});
+if (claim.count === 0) continue;  // someone else has it
+```
+
+This gives a *stronger* guarantee than the doc asked for — it holds against two
+cron invocations running concurrently, not just sequentially — with no
+transaction open across the network. It is consistent with the doc's own
+philosophy: delivery is deliberately at-most-once, because "a late reminder is
+worse than no reminder". Both properties are asserted in
+`tests/integration/reminders.test.ts`, including a genuinely concurrent
+`Promise.all` of two sweeps.
+
+### The window cannot be a SQL range
+
+`booking-flow.md` writes the query as `startUtc: { gte: plusHours(now, 23), lt:
+plusHours(now, 25) }`. There is no `start_utc` column — appointments store a
+clinic-local calendar date and an `"HH:mm"` wall clock. The sweep therefore
+narrows to the one or two clinic dates the window can touch, then computes each
+candidate's real start instant and range-checks in memory. At clinic scale that
+is a handful of rows per run.
+
+### Sentry without `withSentryConfig`
+
+The usual wrapper injects the SDK through webpack, but it also re-bundles
+`@sentry/nextjs` — which `next.config.mjs` deliberately keeps external to avoid
+the OpenTelemetry "Critical dependency" warning that Phase 1 removed.
+`instrumentation.ts` initialises the Node and edge runtimes instead, and a small
+client component covers the browser (Next 14 only auto-loads
+`sentry.client.config.ts` through the wrapper).
+
+Two consequences:
+
+1. **No automatic source-map upload.** Production stack traces will be minified
+   until `SENTRY_AUTH_TOKEN`/`SENTRY_ORG`/`SENTRY_PROJECT` are set and
+   `withSentryConfig` is wired back in. Worth doing before launch; not worth the
+   build complexity now.
+2. **The edge bundle grew 77 kB → 131 kB**, because `sentry.edge.config.ts` is
+   pulled into `middleware.ts`. Well inside Vercel's limit, but it is real
+   weight on every request through the session gate. Dropping the edge config
+   would recover it; the trade is losing error reporting from middleware.
+
+Session replay is off and `sendDefaultPii` is false — this app handles patient
+data, and replay would record people typing medical notes.
+
+### Cron gate: passed live
+
+| Check | Result |
+|---|---|
+| No `Authorization` header | 401 ✅ |
+| Wrong secret | 401 ✅ |
+| Right secret, wrong scheme (no `Bearer `) | 401 ✅ |
+| Correct header | 200 ✅ |
+| **Prisma queries issued by unauthorised calls** | **0** — measured, not assumed ✅ |
+| Old `/api/cron` path | 404 ✅ |
+| Appointment 24h out, one sweep | 1 claimed, 1 delivered ✅ |
+| Second sweep, same hour | 0 claimed — no double-send ✅ |
+| WhatsApp unconfigured | throws, email still sent, `reminderSent` still set ✅ |
+
+The secret is compared with `timingSafeEqual` over fixed-width buffers, and an
+unset `CRON_SECRET` refuses every request rather than defaulting to open.
+
+### E2E scenarios
+
+All three from `booking-flow.md`, against a production build in a real browser:
+
+1. A patient books through the full wizard — including "No preference", which
+   exercises the load-balancing path — and sees the appointment on their own
+   pages, with the row asserted in the database as `PENDING`.
+2. A patient with an appointment 12 hours away sees the "call the clinic"
+   message instead of a cancel button, **and** the API refuses the cancellation
+   with 422 when called directly.
+3. An admin confirms a pending appointment and the patient sees `Confirmed`.
+
+Fixtures tag every row they create and delete them afterwards; verified after the
+run — 20 appointments, 14 users, 3 dentists, 5 services, exactly the seed state.
+
+Browsers are not vendored: `npx playwright install chromium` once.
 
 ## Timeline
 
@@ -802,7 +926,7 @@ send, and no double-send when re-run within the same hour.
 | 3 — Slot engine | 2.5d | ✅ done, verified live |
 | 4 — Domain | 3.5d | ✅ done, race gate passed |
 | 5 — Actions + handlers | 4d | ✅ done, e2e verified |
-| 6 — Cron + deploy | 2d | |
+| 6 — Cron + deploy | 2d | ✅ done, cron + e2e verified |
 | **Total** | **~15 working days (3 weeks)** | |
 
 **Critical path:** 0 → 1 → 3 → 4 → 5. Phase 2 blocks manual testing but not
@@ -844,15 +968,18 @@ Phase 4's blockers were answered before it was built — recorded in full under
 
 ### Still open
 
-- **`zxcvbn` score ≥ 3.** `security.md:34` asks for it; the package is not a
+- **`zxcvbn` score >= 3.** `security.md:34` asks for it; the package is not a
   dependency and adding one is a product call. Length/letter/number rules are
   enforced today.
 - **Overlap comparison on the fall-back day.** Conservative but not exact — see
   "Known limitation" under Phase 4. Fixing it means storing UTC instants on
   `appointments`.
-- **AI chat booking** — discussed separately, not in this plan. It should come
-  *after* Phase 5, since its tools would wrap exactly the endpoints being built
-  there. Building it sooner means a conversational interface to mock data.
+- **Sentry source maps.** `instrumentation.ts` initialises the SDK but there is
+  no `withSentryConfig`, so production stack traces stay minified until
+  `SENTRY_AUTH_TOKEN` / `SENTRY_ORG` / `SENTRY_PROJECT` are set. Worth doing
+  before launch.
+- **AI chat booking** — discussed separately, not in this plan. Its tools would
+  wrap the endpoints built in Phase 5, so it belongs after them, not before.
 
 ### Not code, still pending
 
@@ -869,3 +996,39 @@ Phase 4's blockers were answered before it was built — recorded in full under
   qualifications) should live.
 - `CLAUDE.md` still carries unfilled template placeholders: `{{Clinic Name}}`,
   `{{Australia/Sydney}}`.
+
+---
+
+## Launch checklist
+
+The server tier is finished. These are the remaining non-code items.
+
+- [ ] **Decide whether the repo stays public.** It is public today. Nothing
+      secret is committed — `.env` is ignored and the project ref lives only
+      there — but this becomes a different question the moment real patient
+      bookings exist.
+- [ ] **Delete the old Tokyo Supabase project.** The free tier caps at two
+      active projects.
+- [ ] **Set every variable from `.env.example` in Vercel**, for Production and
+      Preview. `AUTH_SECRET` and `CRON_SECRET` in particular — a missing
+      `CRON_SECRET` makes the reminder endpoint refuse every request (by
+      design), and a missing `CLINIC_TIMEZONE` now falls back safely but should
+      still be set explicitly.
+- [ ] **Supabase API keys (anon / service role).** Still empty. Dentist photo
+      upload is the one Phase 5 item left undone and needs them.
+- [ ] **Change the seeded `admin@demo.com` password.** `Admin123!` is 9
+      characters — below the 10-character minimum — so that account works but
+      cannot reset to its own password. Replace the seeded credentials before
+      anyone real logs in.
+- [ ] **Verify the Resend sending domain** and set `EMAIL_FROM` to it. Without a
+      key, production email *throws* rather than silently dropping.
+- [ ] **Configure Twilio WhatsApp** or accept email-only reminders. The sweep
+      handles an unconfigured Twilio correctly — it logs and sends the email —
+      so this is a launch decision, not a blocker.
+- [ ] **Confirm the cron is registered** after the first deploy: Vercel →
+      Cron Jobs. `vercel.json` declares it, but check it actually appears.
+- [ ] **Wire `withSentryConfig`** if readable production stack traces matter.
+- [ ] **`components/landing/{services,dentists}-section.tsx`** still render
+      hardcoded marketing content, including dentists who are not in the
+      database. Decide where the marketing-only fields (icons, gradients,
+      qualifications) should live before launch.

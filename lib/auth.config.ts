@@ -18,20 +18,35 @@ import type { Role } from "@prisma/client";
  */
 
 /** Route prefixes that require an authenticated session. */
-const PROTECTED_PREFIXES = ["/dashboard", "/book", "/appointments", "/profile", "/admin"] as const;
+const PROTECTED_PREFIXES = [
+  "/dashboard",
+  "/book",
+  "/appointments",
+  "/profile",
+  "/admin",
+] as const;
 
 /** Staff-only prefixes — PATIENT sessions are bounced to their own dashboard. */
 const STAFF_PREFIXES = ["/admin"] as const;
 
 /** Signed-in users have no business on these; send them to their landing page. */
-const AUTH_PAGES = ["/login", "/register", "/forgot-password", "/reset-password"] as const;
+const AUTH_PAGES = [
+  "/login",
+  "/register",
+  "/forgot-password",
+  "/reset-password",
+] as const;
 
 export function isProtectedPath(pathname: string): boolean {
-  return PROTECTED_PREFIXES.some((p) => pathname === p || pathname.startsWith(`${p}/`));
+  return PROTECTED_PREFIXES.some(
+    (p) => pathname === p || pathname.startsWith(`${p}/`),
+  );
 }
 
 export function isStaffPath(pathname: string): boolean {
-  return STAFF_PREFIXES.some((p) => pathname === p || pathname.startsWith(`${p}/`));
+  return STAFF_PREFIXES.some(
+    (p) => pathname === p || pathname.startsWith(`${p}/`),
+  );
 }
 
 export function isAuthPage(pathname: string): boolean {
@@ -44,6 +59,19 @@ export function defaultLandingFor(role: Role | undefined): string {
 }
 
 export const authConfig = {
+  /**
+   * Trust the Host header.
+   *
+   * NextAuth v5 refuses any request whose host it cannot verify, and outside
+   * development it only auto-trusts when it detects Vercel. Without this a
+   * production build answers every auth request with `UntrustedHost` and a 500
+   * — which is exactly what `pnpm start` and the e2e suite hit.
+   *
+   * Safe here because the app runs behind Vercel's proxy, which sets
+   * `X-Forwarded-Host` itself and does not pass through a client-supplied one.
+   * Revisit if this is ever deployed behind a proxy that does not.
+   */
+  trustHost: true,
   session: { strategy: "jwt" },
   pages: {
     signIn: "/login",
@@ -59,7 +87,9 @@ export const authConfig = {
         token.role = (user as { role: Role }).role;
         token.firstName = (user as { firstName: string }).firstName;
         token.lastName = (user as { lastName: string }).lastName;
-        token.isEmailVerified = (user as { isEmailVerified: boolean }).isEmailVerified;
+        token.isEmailVerified = (
+          user as { isEmailVerified: boolean }
+        ).isEmailVerified;
       }
       return token;
     },

@@ -23,7 +23,7 @@
 | **Server actions** | **0% — none exist** |
 | Middleware | ✅ done (Phase 1) |
 | Migrations | ✅ applied to Supabase; partial index verified in-database |
-| Tests | ~45% — 104 unit tests; no integration, no Playwright e2e |
+| Tests | ~65% — 134 unit + 26 integration tests; no Playwright e2e |
 | Deploy/observability | ~10% — no `vercel.json`, Sentry installed but unconfigured |
 
 **Overall: ~40%.** The presentation half is nearly done; the functional half is
@@ -494,42 +494,141 @@ tests cannot reach. Against the seeded Sydney project:
 | "No preference" union across 3 dentists | 35 slots, starting 08:00 ✅ |
 | A Sunday, nobody rostered | 0 slots ✅ |
 
-## Phase 4 — Appointment domain (3.5 days)
+## Phase 4 — Appointment domain ✅ DONE
 
 ```
 lib/appointments/
+  index.ts        barrel — `docs/api-conventions.md` imports from `@/lib/appointments`
   create.ts       three-layer race prevention + "no preference" load balancing
   transition.ts   the state machine — the ONLY code path that writes `status`
-  queries.ts      list / get, always scoped by patientId
-  reschedule.ts   cancel + rebook inside one transaction
+  queries.ts      list / get, always scoped by the actor
+  actor.ts        session -> Actor, resolving a DENTIST's `Dentist.id`
+  time.ts         stored (date, "HH:mm") <-> absolute instants
 ```
 
-### The three defense layers (`create.ts`)
+| File | Action | Result |
+|---|---|---|
+| `lib/appointments/*` | **new** | ✅ six modules, above |
+| `lib/slots.ts` | extend | ✅ added `utcToClinicDateKey` — the instant→calendar-date counterpart to `clinicDateKey` |
+| `lib/validators/appointment.ts` | fix | ✅ `dentistId` now `.nullable()`; notes capped at `MAX_NOTES_LENGTH` (1000, was 500); `availabilityQuerySchema.dentistId` nullish |
+| `tests/unit/appointments/` | **new** | ✅ `transition` (24) · `time` (6) |
+| `tests/integration/` | **new** | ✅ `booking.race` (4) · `booking.create` (12) · `booking.transition` (10) |
+| `vitest.integration.config.ts`, `pnpm test:integration` | **new** | ✅ see below |
 
-1. **Optimistic re-check** — re-run `getAvailableSlots`; if the chosen slot is
-   gone, throw `SlotNoLongerAvailableError` and send the patient back to step 3.
-   Cheap, catches the common case, guarantees nothing.
-2. **Serializable transaction** — `$transaction(..., { isolationLevel: 'Serializable' })`
-   containing the overlap query and the create. Catch Postgres serialization
-   failures, **retry once**, then surface `ConflictError`.
-3. **The partial unique index** — already in place from Phase 0. Catches exact
-   start-time collisions only; overlap-only conflicts are Layer 2's job.
+**Gate met:** `typecheck` ✅ · `lint` ✅ · `test` ✅ **134/134** (was 104) · `build` ✅ ·
+`test:integration` ✅ **26/26** against the live Supabase database.
 
-### Also in this phase
+### The race gate: passed, and Layer 2 is what catches it
 
-- Add `rescheduledFromId String?` to `schema.prisma` (+ migration). The reschedule
-  spec requires it; it is currently missing.
-- `transition.ts` enforces the full state machine table from `booking-flow.md`.
-  Route handlers and server actions **never** set `status` directly.
-- The 24h rule, exactly as specified — no fuzz factor. 23h59m is a rejection.
-- "No preference" resolution: pick the dentist with the fewest appointments that
-  day; break ties by dentist ID for determinism.
+`booking.race.test.ts` fires concurrent `createAppointment` calls at one slot.
+Exactly one wins; the loser gets `ConflictError`. Instrumented over repeated
+runs, the sequence is consistently:
 
-**Gate:** `booking.race.test.ts` fires two concurrent transactions at one slot.
-Exactly one wins; the other gets `ConflictError`. This is the single most
-important test in the codebase.
+```
+[booking] bookingConflict { layer: 'tx', retrying: true, ... }
+[booking] bookingConflict { layer: 'tx', ... }
+```
 
----
+— the Serializable transaction fails with a write conflict, the single retry
+runs, and the retry then sees the winner's committed row and rejects cleanly.
+**Layer 3 (the partial index) never fired**, which is the expected division of
+labour: it only sees exact start-time collisions that slip past Layer 2.
+
+Two details worth recording:
+
+1. **The two bookings must use different patients.** With one patient, the
+   "you already have an appointment then" check rejects the second on its own
+   and the test passes without ever exercising the race layers. It is an easy
+   test to write wrong.
+2. **Prisma interactive transactions at Serializable work through Supabase's
+   PgBouncer pooler.** This was the open risk — transaction-mode pooling breaks
+   some session-scoped features — and it is now measured, not assumed.
+
+A fourth case asserts a cancelled slot becomes bookable again, which is the
+Phase 0 partial-index fix paying off end to end.
+
+### Known limitation: overlap is compared on local wall clock
+
+Both the in-transaction overlap query and `appointments_active_slot_unique`
+compare `start_time`/`end_time` as `"HH:mm"` strings, exactly as
+`docs/booking-flow.md` prescribes. On the one fall-back day a year this is
+*conservative but not exact*: an appointment stored 01:45–02:15 (14:45–15:15Z)
+and one stored 02:00–02:30 (16:00–16:30Z) are disjoint in real time, but the
+string comparison reports an overlap and refuses the second.
+
+It errs toward refusing a legal booking rather than allowing a double-book,
+which is the right direction to be wrong in. Making it exact would mean storing
+UTC instants on `appointments`, which is a schema change well outside this
+phase. Flagged rather than fixed.
+
+### Status writes go through one door
+
+`transition.ts` owns the table from `booking-flow.md` and is the only code that
+writes `status`. Beyond the documented rules it adds one thing the doc does not
+specify: the read and the write share a transaction, and the `updateMany` guards
+on the status it expected to find. Two admins clicking Confirm and Cancel at the
+same instant therefore cannot both succeed — the second matches zero rows and is
+rejected instead of silently overwriting the first. Covered by
+`booking.transition.test.ts`.
+
+Ownership is checked *before* the state rules, deliberately: otherwise a
+stranger probing a cancelled appointment would get "already cancelled", which
+confirms it exists. Everything unauthorised answers `NotFoundError`.
+
+### Integration tests: a second vitest project
+
+`pnpm test` stays hermetic and fast (134 unit tests, ~3s, no network).
+`pnpm test:integration` runs the DB-backed suites via
+`vitest.integration.config.ts`, which loads `.env` through a small setup file —
+vitest does not read it, and these suites need `DATABASE_URL` and
+`CLINIC_TIMEZONE`. Every suite is `describe.skipIf(!hasDatabase)`, so a checkout
+without `.env` skips rather than fails.
+
+Fixtures create their own users, dentists, services and availability, and tear
+them down in `afterAll`. Verified after the run: 14 users / 3 dentists /
+5 services / 20 appointments — the seed state, untouched.
+
+One fixture wrinkle worth knowing: `getAvailableSlotsAcrossDentists` unions
+*every* active dentist in the database, seeded ones included, so the "no
+preference" tests would otherwise depend on whatever the seed contains. They use
+a **Sunday** — the one weekday no seeded dentist works — so only the fixtures are
+rostered.
+
+### Open questions, now answered
+
+1. **Reschedule: deferred.** No UI entry point exists, it needs a
+   `rescheduledFromId` column plus a migration (and that migration is precisely
+   where `migrate dev` will try to drop the partial index), and cancel-then-book
+   already works as two user actions. `lib/appointments/reschedule.ts` is
+   therefore **not** in this phase, and the schema is unchanged — Phase 4 shipped
+   with no migration at all.
+2. **Dentist write access: confirm, complete, and cancel — their own
+   appointments only.** Exactly the state machine table; dentist-initiated
+   booking stays post-launch. `resolveActor` refuses a DENTIST session whose
+   dentist row is missing or deactivated, since that is a broken account rather
+   than an authorization near-miss.
+3. **`zxcvbn`: still open.** Untouched by this phase; it is a dependency add and
+   a UX change.
+4. **`appointmentDate` kept** (it matches the Prisma column; the doc was the
+   drifted side, and `docs/booking-flow.md` has been corrected). **`dentistId` is
+   now `.nullable()`**, so the booking form's long-standing "No preference"
+   option can finally be submitted.
+
+### Deviations worth knowing
+
+1. **The patient double-book check lives in `create.ts`, not in a Zod
+   refinement.** `booking-flow.md` files it under `createAppointmentSchema`, but
+   it needs a database read, which Zod cannot do at the boundary.
+2. **`createAppointment` takes `bookedByAdmin`** to skip the email-verification
+   precondition, per "Preconditions" — admins booking a walk-in bypass
+   verification but run the same slot logic.
+3. **Load balancing counts only PENDING and CONFIRMED** appointments that day.
+   Counting cancellations would penalise a dentist for other people's changes of
+   mind. Ties break by dentist id, so a retried request lands on the same
+   dentist.
+4. **Observability is `console.info` for now.** `bookingAttempted` and
+   `bookingConflict` (with `layer`) are emitted as the doc specifies; Phase 6
+   points them at Sentry alongside the rest of the instrumentation.
 
 ## Phase 5 — Server actions + route handlers (4 days)
 
@@ -609,7 +708,7 @@ send, and no double-send when re-run within the same hour.
 | 1 — Foundation | 1d | ✅ done |
 | 2 — Auth | 1.5d | ✅ done, e2e verified |
 | 3 — Slot engine | 2.5d | ✅ done, verified live |
-| 4 — Domain | 3.5d | |
+| 4 — Domain | 3.5d | ✅ done, race gate passed |
 | 5 — Actions + handlers | 4d | |
 | 6 — Cron + deploy | 2d | |
 | **Total** | **~15 working days (3 weeks)** | |
@@ -638,19 +737,37 @@ Additionally, per the security checklist, each phase's PR confirms:
 
 ---
 
-## Open questions — need a human call
+## Open questions
 
-These change Phase 4's shape, so they are worth answering before it starts.
+Phase 4's blockers were answered before it was built — recorded in full under
+"Phase 4 → Open questions, now answered". In short:
 
-1. **Reschedule in MVP, or defer?** It needs a schema column and a nested
-   transaction. Cutting it saves ~1 day, and the UI has no reschedule button today.
-2. **Do dentists get write access?** `booking-flow.md` says they may confirm and
-   complete their own appointments, but its closing section defers
-   dentist-initiated booking to post-launch. Current assumption: implement the
-   former, not the latter.
-3. **`date` vs `appointmentDate` in the validator.** The docs and the code
-   disagree. Assumption: keep `appointmentDate` (matches the Prisma column) and
-   correct the doc.
-4. **AI chat booking** — discussed separately, not in this plan. It should come
-   *after* Phase 5, since its tools would wrap exactly the endpoints being built
-   here. Building it sooner means a conversational interface to mock data.
+1. ~~**Reschedule in MVP, or defer?**~~ **Deferred.** No UI entry point, needs a
+   schema column, and cancel-then-book covers it. Revisit post-launch.
+2. ~~**Do dentists get write access?**~~ **Yes, scoped to their own
+   appointments:** confirm, complete, cancel. Dentist-initiated booking stays
+   post-launch.
+3. ~~**`date` vs `appointmentDate` in the validator.**~~ **`appointmentDate`
+   kept**; `docs/booking-flow.md` corrected. `dentistId` is now `.nullable()`.
+
+### Still open
+
+- **`zxcvbn` score ≥ 3.** `security.md:34` asks for it; the package is not a
+  dependency and adding one is a product call. Length/letter/number rules are
+  enforced today.
+- **Overlap comparison on the fall-back day.** Conservative but not exact — see
+  "Known limitation" under Phase 4. Fixing it means storing UTC instants on
+  `appointments`.
+- **AI chat booking** — discussed separately, not in this plan. It should come
+  *after* Phase 5, since its tools would wrap exactly the endpoints being built
+  there. Building it sooner means a conversational interface to mock data.
+
+### Not code, still pending
+
+- Delete the old Tokyo Supabase project (free tier caps at 2 active projects).
+- The repo is **public** — decide whether that is right before taking real
+  patient bookings.
+- Supabase API keys (anon / service role) are empty; Phase 5 needs them for
+  dentist photo storage.
+- `CLAUDE.md` still carries unfilled template placeholders: `{{Clinic Name}}`,
+  `{{Australia/Sydney}}`.

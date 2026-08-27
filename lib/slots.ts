@@ -113,6 +113,21 @@ export function utcToClinicTime(
 }
 
 /**
+ * The clinic-local calendar date of an instant, as "yyyy-MM-dd".
+ *
+ * The counterpart to `clinicDateKey`, and not interchangeable with it:
+ * `clinicDateKey` reads the UTC parts of a `@db.Date` value, which already IS
+ * the clinic-local date. This one converts a real instant, which is what you
+ * want for "what day is it at the clinic right now".
+ */
+export function utcToClinicDateKey(
+  instant: Date,
+  timezone: string = CLINIC_TIMEZONE,
+): string {
+  return formatInTimeZone(instant, timezone, "yyyy-MM-dd");
+}
+
+/**
  * Half-open overlap test: `[aStart, aEnd)` against `[bStart, bEnd)`.
  *
  * Strict inequalities on both sides, so back-to-back appointments (09:00-09:30

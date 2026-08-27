@@ -24,6 +24,9 @@ export async function POST(req: NextRequest) {
       data: { message: "Your password has been reset. You can now sign in." },
     });
   } catch (err) {
-    return handleApiError(err, { route: "/api/auth/reset-password", method: "POST" });
+    return handleApiError(err, {
+      route: "/api/auth/reset-password",
+      method: "POST",
+    });
   }
 }

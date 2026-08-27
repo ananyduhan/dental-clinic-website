@@ -52,6 +52,24 @@ export const appointmentFiltersSchema = z.object({
   limit: z.coerce.number().int().positive().max(100).default(20),
 });
 
+/**
+ * Filters for the Excel export.
+ *
+ * `from`/`to` are required: an unbounded export would stream every appointment
+ * the clinic has ever taken into a spreadsheet on someone's laptop.
+ */
+export const exportFiltersSchema = z
+  .object({
+    from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Invalid from date"),
+    to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Invalid to date"),
+    dentistId: z.string().uuid("Invalid dentist").nullish(),
+    status: z.nativeEnum(AppointmentStatus).nullish(),
+  })
+  .refine((data) => data.from <= data.to, {
+    message: "The start date must be on or before the end date",
+    path: ["from"],
+  });
+
 export const availabilityQuerySchema = z.object({
   /** Omitted or null asks for the union across every active dentist. */
   dentistId: z.string().uuid("Invalid dentist").nullish(),
@@ -68,3 +86,4 @@ export type UpdateAppointmentAdminInput = z.infer<
 >;
 export type AppointmentFilters = z.infer<typeof appointmentFiltersSchema>;
 export type AvailabilityQuery = z.infer<typeof availabilityQuerySchema>;
+export type ExportFilters = z.infer<typeof exportFiltersSchema>;

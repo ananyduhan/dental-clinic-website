@@ -29,6 +29,9 @@ export async function GET(req: NextRequest) {
     destination.searchParams.set("status", await verifyEmail(token));
     return NextResponse.redirect(destination);
   } catch (err) {
-    return handleApiError(err, { route: "/api/auth/verify-email", method: "GET" });
+    return handleApiError(err, {
+      route: "/api/auth/verify-email",
+      method: "GET",
+    });
   }
 }

@@ -170,7 +170,7 @@ export interface ErrorContext {
  * this is safe to call now; the console line guarantees the failure is visible
  * in the meantime.
  */
-function reportServerError(error: unknown, context?: ErrorContext): void {
+export function reportServerError(error: unknown, context?: ErrorContext): void {
   console.error("[api] unhandled server error", { error, ...context });
 
   // Imported lazily so @sentry/nextjs is never pulled into an edge or client

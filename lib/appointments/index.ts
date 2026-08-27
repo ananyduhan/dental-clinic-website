@@ -21,6 +21,7 @@ export {
   listUpcomingAppointmentsFor,
   type AppointmentListFilters,
 } from "./queries";
+export { updateAdminNotes } from "./notes";
 export { resolveActor } from "./actor";
 export {
   appointmentDateFromKey,

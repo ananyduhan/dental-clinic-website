@@ -2,7 +2,13 @@
 
 import * as React from "react";
 import { Download, Loader2, CheckCircle2, FileSpreadsheet } from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+} from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -15,44 +21,62 @@ import {
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 
-const DENTISTS = [
-  { value: "all",  label: "All dentists" },
-  { value: "d1",   label: "Dr. Sarah Chen" },
-  { value: "d2",   label: "Dr. James Patel" },
-  { value: "d3",   label: "Dr. Emily Walker" },
-];
+export type ExportDentistOption = { id: string; name: string };
 
-export function ExportForm() {
+export function ExportForm({ dentists }: { dentists: ExportDentistOption[] }) {
   const { toast } = useToast();
   const today = new Date().toISOString().slice(0, 10);
   const firstOfMonth = new Date();
   firstOfMonth.setDate(1);
   const defaultFrom = firstOfMonth.toISOString().slice(0, 10);
 
-  const [from,     setFrom]     = React.useState(defaultFrom);
-  const [to,       setTo]       = React.useState(today);
-  const [dentist,  setDentist]  = React.useState("all");
+  const [from, setFrom] = React.useState(defaultFrom);
+  const [to, setTo] = React.useState(today);
+  const [dentist, setDentist] = React.useState("all");
   const [isPending, startTransition] = React.useTransition();
-  const [success,   setSuccess]  = React.useState(false);
+  const [success, setSuccess] = React.useState(false);
+
+  const isValid = !!from && !!to && from <= to;
 
   function handleExport() {
-    if (!from || !to) return;
+    if (!isValid) return;
+
     startTransition(async () => {
-      await new Promise((r) => setTimeout(r, 1200));
       const params = new URLSearchParams({ from, to });
       if (dentist !== "all") params.set("dentistId", dentist);
-      const url = `/api/admin/export?${params.toString()}`;
+
+      // Fetched rather than navigated to, so an error comes back as JSON we can
+      // show instead of replacing the page with a raw error document.
+      const response = await fetch(`/api/admin/export?${params.toString()}`);
+
+      if (!response.ok) {
+        const body = await response.json().catch(() => null);
+        toast({
+          title: "Export failed",
+          description:
+            body?.error?.message ?? "Could not build the spreadsheet.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
       link.download = `appointments-${from}-to-${to}.xlsx`;
       link.click();
+      // The blob holds patient data in memory until it is released.
+      URL.revokeObjectURL(url);
+
       setSuccess(true);
-      toast({ title: "Export ready", description: "Your download has started." });
+      toast({
+        title: "Export ready",
+        description: "Your download has started.",
+      });
       setTimeout(() => setSuccess(false), 5000);
     });
   }
-
-  const isValid = !!from && !!to && from <= to;
 
   return (
     <Card>
@@ -63,7 +87,9 @@ export function ExportForm() {
           </div>
           <div>
             <CardTitle>Export to Excel</CardTitle>
-            <CardDescription>Select a date range and optional dentist filter, then download.</CardDescription>
+            <CardDescription>
+              Select a date range and optional dentist filter, then download.
+            </CardDescription>
           </div>
         </div>
       </CardHeader>
@@ -102,20 +128,27 @@ export function ExportForm() {
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {DENTISTS.map((d) => <SelectItem key={d.value} value={d.value}>{d.label}</SelectItem>)}
+              <SelectItem value="all">All dentists</SelectItem>
+              {dentists.map((d) => (
+                <SelectItem key={d.id} value={d.id}>
+                  {d.name}
+                </SelectItem>
+              ))}
             </SelectContent>
           </Select>
         </div>
 
         {/* Info */}
         <div className="rounded-[var(--radius-card)] bg-[var(--color-canvas)] px-4 py-3 text-sm text-[var(--color-text-soft)]">
-          <p className="font-medium text-[var(--color-text)] mb-1">What gets exported?</p>
+          <p className="font-medium text-[var(--color-text)] mb-1">
+            What gets exported?
+          </p>
           <ul className="list-disc list-inside space-y-0.5 text-xs">
             <li>Patient name and phone number</li>
             <li>Dentist name</li>
             <li>Service and duration</li>
             <li>Appointment date, time, and status</li>
-            <li>Admin notes</li>
+            <li>Patient notes</li>
           </ul>
         </div>
 
@@ -127,11 +160,20 @@ export function ExportForm() {
           className="gap-2"
         >
           {isPending ? (
-            <><Loader2 className="h-4 w-4 animate-spin" />Preparing export…</>
+            <>
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Preparing export…
+            </>
           ) : success ? (
-            <><CheckCircle2 className="h-4 w-4" />Downloaded!</>
+            <>
+              <CheckCircle2 className="h-4 w-4" />
+              Downloaded!
+            </>
           ) : (
-            <><Download className="h-4 w-4" />Download Excel</>
+            <>
+              <Download className="h-4 w-4" />
+              Download Excel
+            </>
           )}
         </Button>
 

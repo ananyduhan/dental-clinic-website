@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Eye, EyeOff, Loader2, Save, Lock } from "lucide-react";
@@ -13,18 +14,32 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+} from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/hooks/use-toast";
+import { changeMyPassword, updateMyProfile } from "@/lib/actions/profile";
 
 interface ProfileFormProps {
   initialFirstName: string;
   initialLastName: string;
   initialEmail: string;
+  initialPhone: string;
 }
 
-export function ProfileForm({ initialFirstName, initialLastName, initialEmail }: ProfileFormProps) {
+export function ProfileForm({
+  initialFirstName,
+  initialLastName,
+  initialEmail,
+  initialPhone,
+}: ProfileFormProps) {
   const { toast } = useToast();
+  const router = useRouter();
   const [showCurrentPassword, setShowCurrentPassword] = React.useState(false);
   const [showNewPassword, setShowNewPassword] = React.useState(false);
   const [profilePending, startProfileTransition] = React.useTransition();
@@ -35,29 +50,86 @@ export function ProfileForm({ initialFirstName, initialLastName, initialEmail }:
     defaultValues: {
       firstName: initialFirstName,
       lastName: initialLastName,
-      phone: "",
+      phone: initialPhone,
     },
   });
 
   const passwordForm = useForm<ChangePasswordInput>({
     resolver: zodResolver(changePasswordSchema),
-    defaultValues: { currentPassword: "", newPassword: "", confirmPassword: "" },
+    defaultValues: {
+      currentPassword: "",
+      newPassword: "",
+      confirmPassword: "",
+    },
   });
+
+  /**
+   * Map field-level errors from the server back onto the form.
+   *
+   * The action returns the same `details` shape the API does, so a rejected
+   * field lands under its own input instead of in a toast the user has to
+   * mentally reconcile with the form.
+   */
+  function applyFieldErrors(
+    form: typeof profileForm | typeof passwordForm,
+    details: Record<string, string> | undefined,
+  ): boolean {
+    if (!details) return false;
+    let applied = false;
+    for (const [field, message] of Object.entries(details)) {
+      if (field === "_root") continue;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      form.setError(field as any, { type: "server", message });
+      applied = true;
+    }
+    return applied;
+  }
 
   function onProfileSubmit(data: UpdateProfileInput) {
     startProfileTransition(async () => {
-      await new Promise((r) => setTimeout(r, 800));
-      console.log("Profile update:", data);
-      toast({ title: "Profile updated", description: "Your details have been saved.", variant: "success" as never });
+      const result = await updateMyProfile(data);
+
+      if (!result.ok) {
+        if (!applyFieldErrors(profileForm, result.error.details)) {
+          toast({
+            title: "Couldn't save",
+            description: result.error.message,
+            variant: "destructive",
+          });
+        }
+        return;
+      }
+
+      // The name shown in the navbar comes from the server render, so pull a
+      // fresh one rather than leaving the header out of step with the form.
+      router.refresh();
+      toast({
+        title: "Profile updated",
+        description: "Your details have been saved.",
+      });
     });
   }
 
   function onPasswordSubmit(data: ChangePasswordInput) {
     startPasswordTransition(async () => {
-      await new Promise((r) => setTimeout(r, 800));
-      console.log("Password change:", data);
+      const result = await changeMyPassword(data);
+
+      if (!result.ok) {
+        if (!applyFieldErrors(passwordForm, result.error.details)) {
+          toast({
+            title: "Couldn't change password",
+            description: result.error.message,
+            variant: "destructive",
+          });
+        }
+        return;
+      }
+
       passwordForm.reset();
-      toast({ title: "Password changed", description: "Your new password is active.", variant: "success" as never });
+      toast({
+        title: "Password changed",
+        description: "Your new password is active.",
+      });
     });
   }
 
@@ -70,7 +142,11 @@ export function ProfileForm({ initialFirstName, initialLastName, initialEmail }:
           <CardDescription>Update your name and phone number.</CardDescription>
         </CardHeader>
         <CardContent>
-          <form onSubmit={profileForm.handleSubmit(onProfileSubmit)} noValidate className="flex flex-col gap-4">
+          <form
+            onSubmit={profileForm.handleSubmit(onProfileSubmit)}
+            noValidate
+            className="flex flex-col gap-4"
+          >
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="firstName">First name</Label>
@@ -80,7 +156,9 @@ export function ProfileForm({ initialFirstName, initialLastName, initialEmail }:
                   error={!!profileForm.formState.errors.firstName}
                 />
                 {profileForm.formState.errors.firstName && (
-                  <p className="text-xs text-[var(--color-error)]">{profileForm.formState.errors.firstName.message}</p>
+                  <p className="text-xs text-[var(--color-error)]">
+                    {profileForm.formState.errors.firstName.message}
+                  </p>
                 )}
               </div>
               <div className="flex flex-col gap-1.5">
@@ -91,7 +169,9 @@ export function ProfileForm({ initialFirstName, initialLastName, initialEmail }:
                   error={!!profileForm.formState.errors.lastName}
                 />
                 {profileForm.formState.errors.lastName && (
-                  <p className="text-xs text-[var(--color-error)]">{profileForm.formState.errors.lastName.message}</p>
+                  <p className="text-xs text-[var(--color-error)]">
+                    {profileForm.formState.errors.lastName.message}
+                  </p>
                 )}
               </div>
             </div>
@@ -105,7 +185,9 @@ export function ProfileForm({ initialFirstName, initialLastName, initialEmail }:
                 disabled
                 className="opacity-60 cursor-not-allowed"
               />
-              <p className="text-xs text-[var(--color-text-soft)]">Email cannot be changed. Contact support if needed.</p>
+              <p className="text-xs text-[var(--color-text-soft)]">
+                Email cannot be changed. Contact support if needed.
+              </p>
             </div>
 
             <div className="flex flex-col gap-1.5">
@@ -118,7 +200,9 @@ export function ProfileForm({ initialFirstName, initialLastName, initialEmail }:
                 error={!!profileForm.formState.errors.phone}
               />
               {profileForm.formState.errors.phone && (
-                <p className="text-xs text-[var(--color-error)]">{profileForm.formState.errors.phone.message}</p>
+                <p className="text-xs text-[var(--color-error)]">
+                  {profileForm.formState.errors.phone.message}
+                </p>
               )}
             </div>
 
@@ -126,7 +210,17 @@ export function ProfileForm({ initialFirstName, initialLastName, initialEmail }:
 
             <div className="flex justify-end">
               <Button type="submit" disabled={profilePending} className="gap-2">
-                {profilePending ? <><Loader2 className="h-4 w-4 animate-spin" />Saving…</> : <><Save className="h-4 w-4" />Save changes</>}
+                {profilePending ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Saving…
+                  </>
+                ) : (
+                  <>
+                    <Save className="h-4 w-4" />
+                    Save changes
+                  </>
+                )}
               </Button>
             </div>
           </form>
@@ -140,10 +234,17 @@ export function ProfileForm({ initialFirstName, initialLastName, initialEmail }:
             <Lock className="h-4 w-4 text-[var(--color-cta)]" />
             <CardTitle>Change password</CardTitle>
           </div>
-          <CardDescription>Choose a strong password with at least 8 characters, one uppercase letter, and one number.</CardDescription>
+          <CardDescription>
+            Choose a strong password with at least 10 characters, one uppercase
+            letter, and one number.
+          </CardDescription>
         </CardHeader>
         <CardContent>
-          <form onSubmit={passwordForm.handleSubmit(onPasswordSubmit)} noValidate className="flex flex-col gap-4">
+          <form
+            onSubmit={passwordForm.handleSubmit(onPasswordSubmit)}
+            noValidate
+            className="flex flex-col gap-4"
+          >
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="currentPassword">Current password</Label>
               <div className="relative">
@@ -159,13 +260,21 @@ export function ProfileForm({ initialFirstName, initialLastName, initialEmail }:
                   type="button"
                   onClick={() => setShowCurrentPassword((v) => !v)}
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--color-text-soft)] hover:text-[var(--color-text)] transition-colors"
-                  aria-label={showCurrentPassword ? "Hide password" : "Show password"}
+                  aria-label={
+                    showCurrentPassword ? "Hide password" : "Show password"
+                  }
                 >
-                  {showCurrentPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  {showCurrentPassword ? (
+                    <EyeOff className="h-4 w-4" />
+                  ) : (
+                    <Eye className="h-4 w-4" />
+                  )}
                 </button>
               </div>
               {passwordForm.formState.errors.currentPassword && (
-                <p className="text-xs text-[var(--color-error)]">{passwordForm.formState.errors.currentPassword.message}</p>
+                <p className="text-xs text-[var(--color-error)]">
+                  {passwordForm.formState.errors.currentPassword.message}
+                </p>
               )}
             </div>
 
@@ -184,13 +293,21 @@ export function ProfileForm({ initialFirstName, initialLastName, initialEmail }:
                   type="button"
                   onClick={() => setShowNewPassword((v) => !v)}
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--color-text-soft)] hover:text-[var(--color-text)] transition-colors"
-                  aria-label={showNewPassword ? "Hide password" : "Show password"}
+                  aria-label={
+                    showNewPassword ? "Hide password" : "Show password"
+                  }
                 >
-                  {showNewPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  {showNewPassword ? (
+                    <EyeOff className="h-4 w-4" />
+                  ) : (
+                    <Eye className="h-4 w-4" />
+                  )}
                 </button>
               </div>
               {passwordForm.formState.errors.newPassword && (
-                <p className="text-xs text-[var(--color-error)]">{passwordForm.formState.errors.newPassword.message}</p>
+                <p className="text-xs text-[var(--color-error)]">
+                  {passwordForm.formState.errors.newPassword.message}
+                </p>
               )}
             </div>
 
@@ -204,15 +321,29 @@ export function ProfileForm({ initialFirstName, initialLastName, initialEmail }:
                 {...passwordForm.register("confirmPassword")}
               />
               {passwordForm.formState.errors.confirmPassword && (
-                <p className="text-xs text-[var(--color-error)]">{passwordForm.formState.errors.confirmPassword.message}</p>
+                <p className="text-xs text-[var(--color-error)]">
+                  {passwordForm.formState.errors.confirmPassword.message}
+                </p>
               )}
             </div>
 
             <Separator />
 
             <div className="flex justify-end">
-              <Button type="submit" disabled={passwordPending} variant="outline" className="gap-2">
-                {passwordPending ? <><Loader2 className="h-4 w-4 animate-spin" />Updating…</> : "Update Password"}
+              <Button
+                type="submit"
+                disabled={passwordPending}
+                variant="outline"
+                className="gap-2"
+              >
+                {passwordPending ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Updating…
+                  </>
+                ) : (
+                  "Update Password"
+                )}
               </Button>
             </div>
           </form>

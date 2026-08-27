@@ -15,39 +15,43 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Suspense } from "react";
 import type { Metadata } from "next";
 
+import { listUpcomingAppointmentsFor, resolveActor } from "@/lib/appointments";
+import { formatClinicDate, formatClinicTime } from "@/lib/format";
+
 export const metadata: Metadata = { title: "Dashboard" };
 
-const MOCK_APPOINTMENTS = [
-  {
-    id: "1",
-    service: "General Check-up & Clean",
-    dentist: "Dr. Sarah Chen",
-    date: "2026-05-10",
-    time: "10:00 AM",
-    status: "CONFIRMED" as const,
-  },
-  {
-    id: "2",
-    service: "Teeth Whitening",
-    dentist: "Dr. Emily Walker",
-    date: "2026-05-22",
-    time: "2:30 PM",
-    status: "PENDING" as const,
-  },
-];
+/** Reads the session and live appointment rows on every request. */
+export const dynamic = "force-dynamic";
 
 const STATUS_CONFIG = {
-  PENDING:   { label: "Pending",   variant: "pending"   as const, icon: Clock },
-  CONFIRMED: { label: "Confirmed", variant: "confirmed" as const, icon: CheckCircle2 },
-  CANCELLED: { label: "Cancelled", variant: "cancelled" as const, icon: AlertCircle },
-  COMPLETED: { label: "Completed", variant: "completed" as const, icon: CheckCircle2 },
+  PENDING: { label: "Pending", variant: "pending" as const, icon: Clock },
+  CONFIRMED: {
+    label: "Confirmed",
+    variant: "confirmed" as const,
+    icon: CheckCircle2,
+  },
+  CANCELLED: {
+    label: "Cancelled",
+    variant: "cancelled" as const,
+    icon: AlertCircle,
+  },
+  COMPLETED: {
+    label: "Completed",
+    variant: "completed" as const,
+    icon: CheckCircle2,
+  },
 };
 
-function AppointmentCard({
-  appointment,
-}: {
-  appointment: (typeof MOCK_APPOINTMENTS)[number];
-}) {
+type CardAppointment = {
+  id: string;
+  service: string;
+  dentist: string;
+  date: Date;
+  startTime: string;
+  status: keyof typeof STATUS_CONFIG;
+};
+
+function AppointmentCard({ appointment }: { appointment: CardAppointment }) {
   const cfg = STATUS_CONFIG[appointment.status];
   const Icon = cfg.icon;
   return (
@@ -62,7 +66,9 @@ function AppointmentCard({
               {appointment.service}
             </p>
             <p className="text-xs text-[var(--color-text-soft)] mt-0.5">
-              {appointment.dentist} · {appointment.date} at {appointment.time}
+              {appointment.dentist} ·{" "}
+              {formatClinicDate(appointment.date, "short")} at{" "}
+              {formatClinicTime(appointment.startTime)}
             </p>
           </div>
           <Badge variant={cfg.variant} className="shrink-0">
@@ -79,7 +85,10 @@ function AppointmentsSkeleton() {
   return (
     <div className="flex flex-col gap-3">
       {[1, 2].map((i) => (
-        <div key={i} className="flex items-start gap-4 p-4 rounded-[var(--radius-card)] border border-[var(--color-border)]">
+        <div
+          key={i}
+          className="flex items-start gap-4 p-4 rounded-[var(--radius-card)] border border-[var(--color-border)]"
+        >
           <Skeleton className="h-10 w-10 rounded-full shrink-0" />
           <div className="flex-1 flex flex-col gap-2">
             <Skeleton className="h-4 w-48" />
@@ -92,9 +101,35 @@ function AppointmentsSkeleton() {
   );
 }
 
+function AppointmentsError() {
+  return (
+    <div
+      role="alert"
+      className="flex flex-col items-center justify-center py-10 text-center"
+    >
+      <AlertCircle className="h-7 w-7 text-[var(--color-error)] mb-3" />
+      <p className="text-sm font-medium text-[var(--color-text)] mb-1">
+        Couldn&apos;t load your appointments
+      </p>
+      <p className="text-sm text-[var(--color-text-soft)]">
+        Please refresh the page, or call the clinic if this keeps happening.
+      </p>
+    </div>
+  );
+}
+
 async function UpcomingAppointments() {
-  await new Promise((r) => setTimeout(r, 100));
-  const appointments = MOCK_APPOINTMENTS;
+  const session = await auth();
+  if (!session?.user) return <AppointmentsError />;
+
+  let appointments;
+  try {
+    const actor = await resolveActor(session);
+    appointments = await listUpcomingAppointmentsFor(actor);
+  } catch {
+    // A dashboard that renders an error beats one that 500s the whole page.
+    return <AppointmentsError />;
+  }
 
   if (appointments.length === 0) {
     return (
@@ -106,7 +141,8 @@ async function UpcomingAppointments() {
           No upcoming appointments
         </p>
         <p className="text-sm text-[var(--color-text-soft)] mb-6 max-w-xs">
-          You don&apos;t have any upcoming visits. Book your next appointment in seconds.
+          You don&apos;t have any upcoming visits. Book your next appointment in
+          seconds.
         </p>
         <Link href="/book">
           <Button size="sm">Book Appointment</Button>
@@ -117,8 +153,18 @@ async function UpcomingAppointments() {
 
   return (
     <div className="flex flex-col gap-3">
-      {appointments.map((appt) => (
-        <AppointmentCard key={appt.id} appointment={appt} />
+      {appointments.slice(0, 3).map((appt) => (
+        <AppointmentCard
+          key={appt.id}
+          appointment={{
+            id: appt.id,
+            service: appt.service.name,
+            dentist: `Dr. ${appt.dentist.user.firstName} ${appt.dentist.user.lastName}`,
+            date: appt.appointmentDate,
+            startTime: appt.startTime,
+            status: appt.status,
+          }}
+        />
       ))}
     </div>
   );
@@ -135,7 +181,7 @@ export default async function DashboardPage() {
       {/* Welcome */}
       <div className="mb-8">
         <h1 className="text-2xl font-bold text-[var(--color-feature)] tracking-tight">
-          Good morning, {firstName} 👋
+          Welcome back, {firstName} 👋
         </h1>
         <p className="text-sm text-[var(--color-text-soft)] mt-1">
           Here&apos;s what&apos;s coming up for you.
@@ -150,8 +196,12 @@ export default async function DashboardPage() {
               <div className="h-10 w-10 rounded-full bg-[var(--color-cta)] flex items-center justify-center group-hover:scale-105 transition-transform">
                 <PlusCircle className="h-5 w-5 text-white" />
               </div>
-              <p className="text-sm font-semibold text-[var(--color-text)]">Book Appointment</p>
-              <p className="text-xs text-[var(--color-text-soft)]">Schedule your next visit</p>
+              <p className="text-sm font-semibold text-[var(--color-text)]">
+                Book Appointment
+              </p>
+              <p className="text-xs text-[var(--color-text-soft)]">
+                Schedule your next visit
+              </p>
             </CardContent>
           </Card>
         </Link>
@@ -161,8 +211,12 @@ export default async function DashboardPage() {
               <div className="h-10 w-10 rounded-full bg-[var(--color-green-light)] flex items-center justify-center group-hover:scale-105 transition-transform">
                 <CalendarDays className="h-5 w-5 text-[var(--color-cta)]" />
               </div>
-              <p className="text-sm font-semibold text-[var(--color-text)]">My Appointments</p>
-              <p className="text-xs text-[var(--color-text-soft)]">View & manage visits</p>
+              <p className="text-sm font-semibold text-[var(--color-text)]">
+                My Appointments
+              </p>
+              <p className="text-xs text-[var(--color-text-soft)]">
+                View & manage visits
+              </p>
             </CardContent>
           </Card>
         </Link>
@@ -194,9 +248,12 @@ export default async function DashboardPage() {
           <CheckCircle2 className="h-5 w-5 text-[var(--color-green-light)]" />
         </div>
         <div>
-          <p className="text-sm font-semibold text-white mb-1">Dental health tip</p>
+          <p className="text-sm font-semibold text-white mb-1">
+            Dental health tip
+          </p>
           <p className="text-xs text-[var(--color-text-invert-soft)]">
-            Regular check-ups every 6 months keep tooth decay and gum disease at bay — and keep your treatment costs low in the long run.
+            Regular check-ups every 6 months keep tooth decay and gum disease at
+            bay — and keep your treatment costs low in the long run.
           </p>
         </div>
       </div>

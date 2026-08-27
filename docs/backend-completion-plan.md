@@ -19,15 +19,16 @@
 | Prisma schema, seed script | ~95% — one bug, one missing column |
 | `lib/` helpers (email, whatsapp, export, rate-limit, errors, auth config) | ~85% — written, but nothing calls them |
 | Zod validators | ~90% — auth aligned to `security.md`; booking fields still drift |
-| **API route handlers** | **~0% — all 10 are `return Response.json({ data: null })`** |
-| **Server actions** | **0% — none exist** |
+| **API route handlers** | ✅ 100% — all replaced, 6 routes added (`/api/cron` awaits Phase 6) |
+| **Server actions** | ✅ 100% — `lib/actions/`, 15 actions behind a typed result wrapper |
 | Middleware | ✅ done (Phase 1) |
 | Migrations | ✅ applied to Supabase; partial index verified in-database |
 | Tests | ~65% — 134 unit + 26 integration tests; no Playwright e2e |
 | Deploy/observability | ~10% — no `vercel.json`, Sentry installed but unconfigured |
 
-**Overall: ~40%.** The presentation half is nearly done; the functional half is
-barely started. Everything a user can *see* works. Nothing a user can *do* works.
+**Overall: ~85%.** Phases 0-5 are done. A patient can register, verify, book,
+view, and cancel; an admin can manage everything and export. What remains is
+Phase 6 — reminders, cron, Sentry, and deploy.
 
 ---
 
@@ -630,54 +631,145 @@ rostered.
    `bookingConflict` (with `layer`) are emitted as the doc specifies; Phase 6
    points them at Sentry alongside the rest of the instrumentation.
 
-## Phase 5 — Server actions + route handlers (4 days)
+## Phase 5 — Server actions + route handlers ✅ DONE
 
-Only now do the stubs get filled. Per `api-conventions.md`: **mutations are Server
-Actions; route handlers are only for cron, file downloads, webhooks, and external
-callers.**
+Per `api-conventions.md`: **mutations are Server Actions; route handlers are only
+for cron, file downloads, webhooks, and external callers.**
 
 ### Server actions — `lib/actions/`
 
-`appointments.ts` (book / cancel / reschedule), `profile.ts`,
-`admin/appointments.ts`, `admin/dentists.ts`, `admin/services.ts`,
-`admin/availability.ts`.
-
-Actions return plain objects and never throw raw errors to the client.
-
-### Route handlers — replace all 10 stubs
-
-| Route | Notes |
+| File | Actions |
 |---|---|
-| `/api/availability` | GET — calls Phase 3 |
+| `appointments.ts` | `bookAppointment`, `cancelAppointment` |
+| `profile.ts` | `updateMyProfile`, `changeMyPassword` |
+| `admin/appointments.ts` | `confirmAppointment`, `completeAppointment`, `cancelAppointmentAsStaff`, `updateAppointmentNotes` |
+| `admin/dentists.ts` | create / update / deactivate |
+| `admin/services.ts` | create / update / deactivate |
+| `admin/availability.ts` | `setAvailabilityAction`, `blockDateAction`, `unblockDateAction` |
+
+Every action re-checks the role in the action body — middleware reads the JWT and
+cannot see a role revoked after the token was issued.
+
+**`lib/action-result.ts` — new.** Actions return
+`{ ok: true, data } | { ok: false, error: { code, message, details? } }` and never
+throw. A thrown error in a Server Action reaches the browser as an opaque digest
+in production and a stack trace in development; neither is useful. `runAction`
+funnels through the same `toHttpError` the route handlers use, so an action and
+its equivalent endpoint answer identically. It lives outside the `"use server"`
+files because such a module may only export async functions.
+
+### Route handlers — all 10 stubs replaced, 6 routes added
+
+| Route | Methods |
+|---|---|
 | `/api/services`, `/api/dentists` | GET, public, active only |
-| `/api/appointments` | GET own + `PATCH /:id`. **Filter by `session.user.id`, never by the URL param** — this is the IDOR rule from `CLAUDE.md` |
-| `/api/admin/appointments`, `/dentists`, `/patients` | `requireRole('ADMIN','DENTIST')` **in the handler**, not just middleware. DENTIST scoped to their own appointments |
-| `/api/admin/export` | GET → `lib/export.ts`, which is already written and needs only wiring |
+| `/api/availability` | GET — `dentistId` omitted returns the union across active dentists |
+| `/api/appointments` · `/[id]` | GET own · GET/PATCH (cancel), scoped by session |
+| `/api/admin/appointments` · `/[id]` | GET · PATCH (status and/or notes) |
+| `/api/admin/dentists`, `/services`, `/patients` | GET |
+| `/api/admin/availability` | GET, **PUT** (replace a whole roster) |
+| `/api/admin/blocked-dates` · `/[id]` | GET/POST · DELETE |
+| `/api/patient/profile` | GET, PATCH |
+| `/api/admin/export` | GET → `.xlsx` |
 
-**Missing routes to add** (in `api-conventions.md`, absent from the tree):
-`/api/admin/services`, `/api/admin/availability`, `/api/admin/blocked-dates`,
-`/api/patient/profile`.
+`/api/cron` is untouched — Phase 6 moves it to `/api/cron/reminders`.
 
-### Unwire the mocks
+**No `POST /api/appointments`.** `api-conventions.md` lists one, but `CLAUDE.md`
+and the same doc's own "When to use what" table both say user-initiated
+mutations are Server Actions. Booking goes through `bookAppointment`; adding a
+second write path to the most safety-critical operation in the system would mean
+two places to keep the race layers and rate limiting correct.
 
-Delete every `MOCK_*` constant and every `await new Promise(r => setTimeout(...))`
-fake mutation, then wire the real data through:
+### New `lib/` modules
 
-- `app/(patient)/dashboard/page.tsx:21`
-- `app/(patient)/appointments/page.tsx:12`
-- `app/(admin)/admin/page.tsx:11` (hardcoded "247 patients")
-- `components/booking/booking-form.tsx:25,34,41`
-- `components/admin/{appointments-table,patients-table,dentists-manager,services-manager,export-form}.tsx`
-- `components/booking/cancel-appointment-button.tsx:23`
-- `components/shared/profile-form.tsx:49,57`
+`catalogue.ts` (public service/dentist reads, publishable fields only),
+`profile.ts`, `patients.ts`, `stats.ts`, `format.ts` (one place that renders a
+booking, so the "read `@db.Date` in UTC" rule is applied once),
+`admin/{dentists,services,availability}.ts`, `appointments/notes.ts`.
 
-Fix `dentistId` nullability here so the "No preference" path actually works.
+`notes.ts` is separate from `transition.ts` deliberately: it does not touch
+`status`, and adding a second entry point to that column would quietly undo the
+single-writer guarantee.
 
-**Gate:** book a real appointment as a patient; see the row in `db:studio`; see it
-on the patient dashboard and in the admin table; cancel it and confirm the slot
-becomes bookable again (this is the Phase 0 index fix paying off).
+### Mocks removed
 
----
+Every item on the list, all now reading live data:
+patient dashboard · patient appointments · admin dashboard (including the
+hardcoded "247 patients") · booking form · cancel button · profile form ·
+admin appointments / patients / dentists / services / export.
+
+**Left alone: `components/landing/{services,dentists}-section.tsx`.** Not on the
+plan's list, and they carry marketing-only fields with no schema equivalent —
+emoji icons, gradient classes, "popular" flags, qualifications. Wiring them would
+mean either losing that content or adding columns for it. Flagged as an open
+item, not silently expanded into.
+
+### Decisions and fixes worth knowing
+
+1. **The admin status dropdown only offers legal transitions.** It used to list
+   all four statuses, so staff could pick one the state machine was always going
+   to reject. `allowedTargets` mirrors the table in `booking-flow.md`:
+   PENDING → Confirm/Cancel, CONFIRMED → Cancel (plus Complete once the visit has
+   actually finished), and terminal states render a plain badge.
+2. **`changePasswordSchema` still required only 8 characters** — `security.md:32`
+   says 10, and Phase 2 raised registration and reset but missed this file. Fixed,
+   with the UI copy.
+3. **The booking form had two navigation bars on step 3.** Both `step < 3` and
+   `step === 2` rendered one. Merged, and step 4 gained the Back button it never
+   had.
+4. **Export is fetched, not navigated to.** A plain link to a failing endpoint
+   replaces the page with a raw error document; fetching lets the error surface
+   as a toast. The blob URL is revoked after the click — it holds patient data.
+5. **The date the patient picks is read from local date parts, not
+   `toISOString()`.** The calendar hands back midnight in the browser's zone, and
+   serialising that through UTC shifts the day backwards for everyone east of
+   Greenwich — which is every patient of a Sydney clinic.
+6. **New dentists get no password.** `createDentist` makes the user and dentist
+   rows in one transaction; the dentist sets their own credential through the
+   reset flow, which also verifies their mailbox. No password passes through an
+   admin's hands.
+7. **Deactivating a dentist or service reports what it leaves behind.** Neither
+   cancels existing appointments — the same rule blocked dates follow — so the
+   count comes back and the toast says so.
+
+### Gate: passed end to end against the live database
+
+`typecheck` ✅ · `lint` ✅ · `test` ✅ 134/134 · `build` ✅ · `test:integration` ✅ 26/26
+
+Then, against `pnpm dev` and Supabase:
+
+| # | Check | Result |
+|---|---|---|
+| 1 | `/api/services`, `/api/dentists`, `/api/availability` unauthenticated | 200 with real rows; 09:00 Sydney → `23:00Z` the previous day (AEST) ✅ |
+| 2 | "No preference" availability | slots tagged with `dentistIds` ✅ |
+| 3 | Bad input | `{"error":{"code":"VALIDATION_ERROR",…,"details":{"date":"Invalid date format"}}}` ✅ |
+| 4 | All protected endpoints, no session | 401 ✅ |
+| 5 | Patient hitting `/api/admin/*` | 403 ✅ |
+| 6 | Patient → `/admin`; admin → `/book` | 307 to `/dashboard` and `/admin` ✅ |
+| 7 | Six admin pages as ADMIN | 200 ✅ |
+| 8 | **Book a real appointment** | row written, `09:00`–`09:30`, PENDING ✅ |
+| 9 | Slot disappears from availability | first offered becomes 09:30 ✅ |
+| 10 | Shows on patient dashboard, appointments page (with notes), admin table | ✅ |
+| 11 | **Patient cancels it** | CANCELLED ✅ |
+| 12 | **Slot bookable again** | 09:00 offered once more — the Phase 0 partial index, proven end to end ✅ |
+| 13 | A different patient tries to cancel it | `NOT_FOUND`, not `FORBIDDEN` ✅ |
+| 14 | Admin confirms PENDING → CONFIRMED | ✅ |
+| 15 | CONFIRMED → COMPLETED before the visit | "This appointment has not finished yet" ✅ |
+| 16 | CONFIRMED → PENDING | "Cannot change an appointment from confirmed to pending" ✅ |
+| 17 | Notes-only PATCH, and an empty PATCH | saved · "Nothing to update" ✅ |
+| 18 | Excel export as ADMIN / as PATIENT | real `.xlsx` with the right headers · 403 ✅ |
+
+Test rows were removed afterwards; the database is back to seed state — 20
+appointments, same status distribution.
+
+### Not done in this phase
+
+**Dentist profile photo upload.** `docs/api-conventions.md` has no endpoint for
+it and the Supabase anon/service-role keys are still empty, which was flagged as
+a Phase 5 prerequisite. `profilePhotoUrl` exists on the model and can be set
+through `updateDentistAction`, but there is no upload UI and no Supabase Storage
+integration. **Add the keys and this becomes a small, self-contained piece of
+work; until then a dentist photo can only be set to an existing URL.**
 
 ## Phase 6 — Cron, reminders, deploy (2 days)
 
@@ -709,7 +801,7 @@ send, and no double-send when re-run within the same hour.
 | 2 — Auth | 1.5d | ✅ done, e2e verified |
 | 3 — Slot engine | 2.5d | ✅ done, verified live |
 | 4 — Domain | 3.5d | ✅ done, race gate passed |
-| 5 — Actions + handlers | 4d | |
+| 5 — Actions + handlers | 4d | ✅ done, e2e verified |
 | 6 — Cron + deploy | 2d | |
 | **Total** | **~15 working days (3 weeks)** | |
 
@@ -767,7 +859,13 @@ Phase 4's blockers were answered before it was built — recorded in full under
 - Delete the old Tokyo Supabase project (free tier caps at 2 active projects).
 - The repo is **public** — decide whether that is right before taking real
   patient bookings.
-- Supabase API keys (anon / service role) are empty; Phase 5 needs them for
-  dentist photo storage.
+- **Supabase API keys (anon / service role) are still empty.** This is the one
+  Phase 5 item left undone: dentist profile photo upload has no Supabase Storage
+  integration and no upload UI. Add the keys from the Sydney project and it
+  becomes a small, self-contained piece of work.
+- `components/landing/{services,dentists}-section.tsx` still render hardcoded
+  marketing content, including dentists who are not in the database. Wiring them
+  needs a decision about where the marketing-only fields (icons, gradients,
+  qualifications) should live.
 - `CLAUDE.md` still carries unfilled template placeholders: `{{Clinic Name}}`,
   `{{Australia/Sydney}}`.

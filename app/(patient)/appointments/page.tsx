@@ -1,92 +1,101 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
-import { CalendarDays, Clock, CheckCircle2, AlertCircle, XCircle, PlusCircle } from "lucide-react";
+import {
+  CalendarDays,
+  Clock,
+  CheckCircle2,
+  AlertCircle,
+  XCircle,
+  PlusCircle,
+} from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { CancelAppointmentButton } from "@/components/booking/cancel-appointment-button";
 
+import {
+  appointmentInterval,
+  listAppointmentsFor,
+  resolveActor,
+} from "@/lib/appointments";
+import { auth } from "@/lib/auth";
+import { CANCELLATION_WINDOW_MS, MAX_PAGE_SIZE } from "@/lib/constants";
+import { formatClinicDate, formatClinicTime } from "@/lib/format";
+
 export const metadata: Metadata = { title: "My Appointments" };
 
-const MOCK_APPOINTMENTS = [
-  {
-    id: "1",
-    service: "General Check-up & Clean",
-    dentist: "Dr. Sarah Chen",
-    date: "2026-05-10",
-    time: "10:00",
-    status: "CONFIRMED" as const,
-    notes: null,
-    canCancel: true,
-  },
-  {
-    id: "2",
-    service: "Teeth Whitening",
-    dentist: "Dr. Emily Walker",
-    date: "2026-05-22",
-    time: "14:30",
-    status: "PENDING" as const,
-    notes: "Sensitivity concerns from last whitening treatment",
-    canCancel: true,
-  },
-  {
-    id: "3",
-    service: "Dental Filling",
-    dentist: "Dr. Sarah Chen",
-    date: "2026-03-15",
-    time: "09:00",
-    status: "COMPLETED" as const,
-    notes: null,
-    canCancel: false,
-  },
-  {
-    id: "4",
-    service: "Emergency Dental Care",
-    dentist: "Dr. James Patel",
-    date: "2026-02-08",
-    time: "16:00",
-    status: "CANCELLED" as const,
-    notes: null,
-    canCancel: false,
-  },
-];
+export const dynamic = "force-dynamic";
 
 const STATUS_CONFIG = {
-  PENDING:   { label: "Pending",   variant: "pending"   as const, icon: Clock },
-  CONFIRMED: { label: "Confirmed", variant: "confirmed" as const, icon: CheckCircle2 },
-  CANCELLED: { label: "Cancelled", variant: "cancelled" as const, icon: XCircle },
-  COMPLETED: { label: "Completed", variant: "completed" as const, icon: AlertCircle },
+  PENDING: { label: "Pending", variant: "pending" as const, icon: Clock },
+  CONFIRMED: {
+    label: "Confirmed",
+    variant: "confirmed" as const,
+    icon: CheckCircle2,
+  },
+  CANCELLED: {
+    label: "Cancelled",
+    variant: "cancelled" as const,
+    icon: XCircle,
+  },
+  COMPLETED: {
+    label: "Completed",
+    variant: "completed" as const,
+    icon: AlertCircle,
+  },
 };
 
-function formatDate(dateStr: string) {
-  return new Date(dateStr + "T00:00:00").toLocaleDateString("en-AU", {
-    weekday: "long",
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-  });
-}
-
-function formatTime(timeStr: string) {
-  const [h, m] = timeStr.split(":").map(Number);
-  const period = (h ?? 0) >= 12 ? "PM" : "AM";
-  const hour = (h ?? 0) % 12 || 12;
-  return `${hour}:${String(m ?? 0).padStart(2, "0")} ${period}`;
-}
+type AppointmentView = {
+  id: string;
+  service: string;
+  dentist: string;
+  date: Date;
+  startTime: string;
+  status: keyof typeof STATUS_CONFIG;
+  notes: string | null;
+  canCancel: boolean;
+};
 
 export default async function AppointmentsPage() {
   const session = await auth();
   if (!session?.user) redirect("/login");
 
-  const upcoming  = MOCK_APPOINTMENTS.filter((a) => a.status === "PENDING" || a.status === "CONFIRMED");
-  const past      = MOCK_APPOINTMENTS.filter((a) => a.status === "COMPLETED" || a.status === "CANCELLED");
+  const actor = await resolveActor(session);
+  const { data } = await listAppointmentsFor(actor, { limit: MAX_PAGE_SIZE });
+
+  const now = new Date();
+  const appointments: AppointmentView[] = data.map((appt) => {
+    const { startUtc } = appointmentInterval(appt);
+    return {
+      id: appt.id,
+      service: appt.service.name,
+      dentist: `Dr. ${appt.dentist.user.firstName} ${appt.dentist.user.lastName}`,
+      date: appt.appointmentDate,
+      startTime: appt.startTime,
+      status: appt.status,
+      notes: appt.notes,
+      // Mirrors the rule the server enforces, so the button is only offered
+      // when pressing it would actually work. The server decides regardless.
+      canCancel:
+        (appt.status === "PENDING" || appt.status === "CONFIRMED") &&
+        startUtc.getTime() - now.getTime() > CANCELLATION_WINDOW_MS,
+    };
+  });
+
+  const upcoming = appointments
+    .filter((a) => a.status === "PENDING" || a.status === "CONFIRMED")
+    .reverse();
+  const past = appointments.filter(
+    (a) => a.status === "COMPLETED" || a.status === "CANCELLED",
+  );
 
   return (
     <div className="max-w-3xl mx-auto animate-fade-in">
       <div className="flex items-center justify-between mb-8">
         <div>
-          <h1 className="text-2xl font-bold text-[var(--color-feature)] tracking-tight">My Appointments</h1>
+          <h1 className="text-2xl font-bold text-[var(--color-feature)] tracking-tight">
+            My Appointments
+          </h1>
           <p className="text-sm text-[var(--color-text-soft)] mt-1">
             View and manage your scheduled visits.
           </p>
@@ -107,9 +116,15 @@ export default async function AppointmentsPage() {
         {upcoming.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-12 rounded-[var(--radius-card)] border border-dashed border-[var(--color-border)] text-center">
             <CalendarDays className="h-8 w-8 text-[var(--color-text-soft)] mb-3" />
-            <p className="text-sm font-medium text-[var(--color-text)] mb-1">No upcoming appointments</p>
-            <p className="text-xs text-[var(--color-text-soft)] mb-4">Book your next visit online in under 2 minutes.</p>
-            <Link href="/book"><Button size="sm">Book Appointment</Button></Link>
+            <p className="text-sm font-medium text-[var(--color-text)] mb-1">
+              No upcoming appointments
+            </p>
+            <p className="text-xs text-[var(--color-text-soft)] mb-4">
+              Book your next visit online in under 2 minutes.
+            </p>
+            <Link href="/book">
+              <Button size="sm">Book Appointment</Button>
+            </Link>
           </div>
         ) : (
           <div className="flex flex-col gap-3">
@@ -123,8 +138,12 @@ export default async function AppointmentsPage() {
                 >
                   <div className="flex items-start justify-between gap-3 mb-3">
                     <div>
-                      <p className="text-sm font-semibold text-[var(--color-text)]">{appt.service}</p>
-                      <p className="text-xs text-[var(--color-text-soft)] mt-0.5">{appt.dentist}</p>
+                      <p className="text-sm font-semibold text-[var(--color-text)]">
+                        {appt.service}
+                      </p>
+                      <p className="text-xs text-[var(--color-text-soft)] mt-0.5">
+                        {appt.dentist}
+                      </p>
                     </div>
                     <Badge variant={cfg.variant} className="shrink-0">
                       <Icon className="h-3 w-3" />
@@ -135,11 +154,11 @@ export default async function AppointmentsPage() {
                   <div className="flex items-center gap-4 text-xs text-[var(--color-text-soft)] mb-4">
                     <span className="flex items-center gap-1.5">
                       <CalendarDays className="h-3.5 w-3.5" />
-                      {formatDate(appt.date)}
+                      {formatClinicDate(appt.date)}
                     </span>
                     <span className="flex items-center gap-1.5">
                       <Clock className="h-3.5 w-3.5" />
-                      {formatTime(appt.time)}
+                      {formatClinicTime(appt.startTime)}
                     </span>
                   </div>
 
@@ -149,11 +168,16 @@ export default async function AppointmentsPage() {
                     </p>
                   )}
 
-                  {appt.canCancel && (
-                    <div className="flex gap-2 pt-3 border-t border-[var(--color-border)]">
+                  <div className="flex gap-2 pt-3 border-t border-[var(--color-border)]">
+                    {appt.canCancel ? (
                       <CancelAppointmentButton appointmentId={appt.id} />
-                    </div>
-                  )}
+                    ) : (
+                      <p className="text-xs text-[var(--color-text-soft)]">
+                        Within 24 hours of your appointment — please call the
+                        clinic to change it.
+                      </p>
+                    )}
+                  </div>
                 </div>
               );
             })}
@@ -167,7 +191,9 @@ export default async function AppointmentsPage() {
           Past
         </h2>
         {past.length === 0 ? (
-          <p className="text-sm text-[var(--color-text-soft)] py-6 text-center">No past appointments.</p>
+          <p className="text-sm text-[var(--color-text-soft)] py-6 text-center">
+            No past appointments.
+          </p>
         ) : (
           <div className="flex flex-col gap-3">
             {past.map((appt) => {
@@ -180,8 +206,12 @@ export default async function AppointmentsPage() {
                 >
                   <div className="flex items-start justify-between gap-3 mb-2">
                     <div>
-                      <p className="text-sm font-semibold text-[var(--color-text)]">{appt.service}</p>
-                      <p className="text-xs text-[var(--color-text-soft)] mt-0.5">{appt.dentist}</p>
+                      <p className="text-sm font-semibold text-[var(--color-text)]">
+                        {appt.service}
+                      </p>
+                      <p className="text-xs text-[var(--color-text-soft)] mt-0.5">
+                        {appt.dentist}
+                      </p>
                     </div>
                     <Badge variant={cfg.variant} className="shrink-0">
                       <Icon className="h-3 w-3" />
@@ -191,11 +221,11 @@ export default async function AppointmentsPage() {
                   <div className="flex items-center gap-4 text-xs text-[var(--color-text-soft)]">
                     <span className="flex items-center gap-1.5">
                       <CalendarDays className="h-3.5 w-3.5" />
-                      {formatDate(appt.date)}
+                      {formatClinicDate(appt.date)}
                     </span>
                     <span className="flex items-center gap-1.5">
                       <Clock className="h-3.5 w-3.5" />
-                      {formatTime(appt.time)}
+                      {formatClinicTime(appt.startTime)}
                     </span>
                   </div>
                 </div>

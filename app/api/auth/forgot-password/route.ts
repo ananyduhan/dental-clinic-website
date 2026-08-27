@@ -4,7 +4,8 @@ import { handleApiError } from "@/lib/errors";
 import { enforceRateLimit } from "@/lib/rate-limit";
 import { forgotPasswordSchema } from "@/lib/validators/auth";
 
-const GENERIC_RESPONSE = "If an account exists for that address, we've sent a reset link.";
+const GENERIC_RESPONSE =
+  "If an account exists for that address, we've sent a reset link.";
 
 /**
  * POST /api/auth/forgot-password
@@ -27,6 +28,9 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ data: { message: GENERIC_RESPONSE } });
   } catch (err) {
-    return handleApiError(err, { route: "/api/auth/forgot-password", method: "POST" });
+    return handleApiError(err, {
+      route: "/api/auth/forgot-password",
+      method: "POST",
+    });
   }
 }

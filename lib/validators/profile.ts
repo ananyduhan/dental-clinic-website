@@ -14,7 +14,9 @@ export const changePasswordSchema = z
     currentPassword: z.string().min(1),
     newPassword: z
       .string()
-      .min(8, "Password must be at least 8 characters")
+      // 10, per docs/security.md:32 — the same minimum registration and reset
+      // enforce. This file was missed when that was raised in Phase 2.
+      .min(10, "Password must be at least 10 characters")
       .regex(/[A-Z]/, "Must contain at least one uppercase letter")
       .regex(/[0-9]/, "Must contain at least one number"),
     confirmPassword: z.string(),

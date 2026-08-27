@@ -113,7 +113,7 @@ Prisma client generated *before* the schema edit.
 
 ### Database setup, as actually performed
 
-Supabase project, region `ap-northeast-1` (being moved to `ap-southeast-2`). Two connection
+Supabase project in `ap-southeast-2` (Sydney). Two connection
 strings are required and `prisma/schema.prisma` now declares both:
 
 ```prisma
@@ -154,13 +154,34 @@ curl -s -o /dev/null -w '%{http_code}' https://<project-ref>.supabase.co/rest/v1
                                        # 401 = project live; 503 = paused
 ```
 
-### Region note
+### Region: moved Tokyo -> Sydney
 
-The project is in `ap-northeast-1` (Tokyo) while `CLINIC_TIMEZONE` is
-`Australia/Sydney` — roughly 100–130 ms of extra round-trip per query from
-Sydney, which compounds across the multi-step booking flow. Supabase cannot move
-a project between regions; it would mean recreating it in `ap-southeast-2`.
-Cheapest to do before real data exists. Left as-is pending a decision.
+The project was originally created in `ap-northeast-1` (Tokyo) while the clinic
+timezone is `Australia/Sydney`. Measured from a Sydney machine:
+
+| Region | TCP connect |
+|---|---|
+| `ap-northeast-1` (Tokyo) | 222 ms |
+| `ap-southeast-2` (Sydney) | **30 ms** |
+
+7.4x, about 192 ms of pure round-trip on every database call.
+
+Supabase cannot change a project's region in place — a project is tied to the
+infrastructure it was provisioned on, and Project Transfers move projects between
+*organizations*, not regions. The fix was to recreate in `ap-southeast-2`. The
+official backup/restore migration guide did not apply: the database held only
+seed data, so it was a recreate plus `migrate deploy` and `db:seed`.
+
+**In production the latency that matters is Vercel function -> Supabase, not
+browser -> Supabase**, and Vercel defaults to `iad1` (Washington DC). Deploying
+with defaults against a Tokyo database would have meant US functions, Japanese
+database, Australian patients. `vercel.json` now pins functions to `syd1` so they
+are co-located with the database and close to patients. Phase 6 adds the cron
+entry to that same file — omitted for now because a cron pointing at a
+nonexistent `/api/cron/reminders` would fail to deploy.
+
+The project ref lives only in `.env`; nothing in the repo hardcodes it, so the
+move was a two-line change.
 
 ### Known Prisma limitation — read before running `migrate dev`
 

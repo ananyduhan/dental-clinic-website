@@ -10,6 +10,7 @@ import {
   hashToken,
 } from "@/lib/tokens";
 import { sendPasswordResetEmail, sendVerificationEmail } from "@/lib/email";
+import { isDemoMode } from "@/lib/demo";
 import type { RegisterInput } from "@/lib/validators/auth";
 
 /**
@@ -43,12 +44,24 @@ export async function registerPatient(input: RegisterInput): Promise<void> {
     select: { id: true, emailVerified: true },
   });
 
+  // On the public demo deployment there is no way to deliver a verification
+  // link to a stranger's inbox, so the account is created ready to use. See
+  // lib/demo.ts for why this exists and what it does not change.
+  const isDemo = isDemoMode();
+
   if (existing) {
     // Unverified account, same address: almost always someone who lost the
     // first email. Re-sending is more useful than staying silent, and reveals
     // nothing an attacker could not already guess.
     if (!existing.emailVerified) {
-      await issueVerificationToken(existing.id, email);
+      if (isDemo) {
+        await prisma.user.update({
+          where: { id: existing.id },
+          data: { emailVerified: true },
+        });
+      } else {
+        await issueVerificationToken(existing.id, email);
+      }
     }
     return;
   }
@@ -63,12 +76,12 @@ export async function registerPatient(input: RegisterInput): Promise<void> {
       lastName: input.lastName.trim(),
       phone: input.phone.trim(),
       role: Role.PATIENT,
-      emailVerified: false,
+      emailVerified: isDemo,
     },
     select: { id: true },
   });
 
-  await issueVerificationToken(user.id, email);
+  if (!isDemo) await issueVerificationToken(user.id, email);
 }
 
 /**

@@ -34,7 +34,7 @@ pnpm dev
 
 The app runs at http://localhost:3000.
 
-Seeded logins: `admin@demo.com` / `Admin123!` and `patient1@demo.com` …
+Seeded logins: `admin@demo.com` / `AdminDemo123!` and `patient1@demo.com` …
 `patient10@demo.com` / `Patient123!`.
 
 ### The minimum `.env` to boot
@@ -46,6 +46,22 @@ Seeded logins: `admin@demo.com` / `Admin123!` and `patient1@demo.com` …
 | `AUTH_SECRET` | NextAuth session signing (`openssl rand -base64 32`) |
 | `CRON_SECRET` | Guards `/api/cron/reminders` |
 | `CLINIC_TIMEZONE` | `Australia/Sydney` |
+
+### Demo mode
+
+`NEXT_PUBLIC_DEMO_MODE=true` is what makes the public deployment usable by a
+stranger. It does two things:
+
+- **Registration creates an already-verified account and sends no email.** No
+  mail provider can deliver a verification link from a `*.vercel.app` URL —
+  Resend needs a domain you control — so without this, signing up on the demo
+  fails at the first step.
+- **The sign-in page offers one-click demo accounts.** Registration only ever
+  creates a `PATIENT`, so this is the only route to the admin dashboard.
+
+It changes nothing security-relevant: passwords are still bcrypt-hashed at cost
+12, and every authorisation and IDOR check is untouched. Leave the flag unset for
+a real clinic and the full email-verification flow runs as written.
 
 Everything else degrades gracefully:
 

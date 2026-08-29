@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { auth } from "@/lib/auth";
+import { signOutAction } from "@/lib/actions/auth";
 import { redirect } from "next/navigation";
 import {
   LayoutDashboard,
@@ -108,7 +109,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
               <Settings className="h-4 w-4 shrink-0" />
               Settings
             </Link>
-            <form action="/api/auth/signout" method="POST">
+            <form action={signOutAction}>
               <button
                 type="submit"
                 className="flex w-full items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-[var(--color-text-soft)] hover:text-[var(--color-error)] hover:bg-red-50 transition-colors"

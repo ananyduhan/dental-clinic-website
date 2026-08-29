@@ -7,6 +7,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Eye, EyeOff, Loader2, CheckCircle2, Circle } from "lucide-react";
 import { registerSchema, type RegisterInput } from "@/lib/validators/auth";
+import { isDemoMode } from "@/lib/demo";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -104,7 +105,9 @@ export default function RegisterPage() {
           </div>
           <h2 className="text-xl font-bold text-[var(--color-feature)] mb-2">Account created!</h2>
           <p className="text-sm text-[var(--color-text-soft)] mb-6">
-            We&apos;ve sent a verification link to your email. Please check your inbox and verify before signing in.
+            {isDemoMode()
+              ? "Your account is ready to use — sign in and book your first appointment."
+              : "We\u2019ve sent a verification link to your email. Please check your inbox and verify before signing in."}
           </p>
           <Button onClick={() => router.push("/login")} className="w-full">
             Go to Sign In

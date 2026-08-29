@@ -15,7 +15,7 @@ import { utcToClinicDateKey, utcToClinicTime } from "@/lib/slots";
 export const CLINIC_TZ = process.env.CLINIC_TIMEZONE ?? "Australia/Sydney";
 
 export const PATIENT = { email: "patient1@demo.com", password: "Patient123!" };
-export const ADMIN = { email: "admin@demo.com", password: "Admin123!" };
+export const ADMIN = { email: "admin@demo.com", password: "AdminDemo123!" };
 
 /** Every row these tests create carries this marker, so teardown is exact. */
 export const E2E_MARKER = "E2E TEST";

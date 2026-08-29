@@ -343,7 +343,7 @@ Each match is updated with `reminder_sent = true` in the same transaction as the
 
 `prisma/seed.ts` produces a usable dev DB:
 
-- 1 admin: `admin@demo.com` / `Admin123!`
+- 1 admin: `admin@demo.com` / `AdminDemo123!`
 - 3 dentists with distinct specialisations and weekly schedules.
 - 5 services: Checkup (30m), Cleaning (45m), Filling (60m), Root Canal (90m), Whitening (60m).
 - 10 patients with realistic names, phones, verified emails.

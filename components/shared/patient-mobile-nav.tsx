@@ -2,6 +2,8 @@
 
 import Link from "next/link";
 import { LogOut, User } from "lucide-react";
+
+import { signOutAction } from "@/lib/actions/auth";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -27,7 +29,7 @@ export function PatientMobileNav() {
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem asChild>
-          <form action="/api/auth/signout" method="POST" className="w-full">
+          <form action={signOutAction} className="w-full">
             <button type="submit" className="flex items-center gap-2 w-full text-[var(--color-error)]">
               <LogOut className="h-4 w-4" />
               Sign Out

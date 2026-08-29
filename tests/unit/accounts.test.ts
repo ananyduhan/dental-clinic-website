@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { hashToken } from "@/lib/tokens";
 
 /**
@@ -54,6 +54,10 @@ const VALID_REGISTRATION = {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // Vitest loads .env, so a developer with NEXT_PUBLIC_DEMO_MODE=true set for
+  // local work would otherwise flip the registration path under every test in
+  // this file. Pin it off; the demo block below opts back in.
+  vi.stubEnv("NEXT_PUBLIC_DEMO_MODE", "false");
   db.$transaction.mockImplementation((ops: unknown) =>
     Array.isArray(ops) ? Promise.all(ops) : Promise.resolve(),
   );
@@ -62,6 +66,64 @@ beforeEach(() => {
   db.verificationToken.deleteMany.mockResolvedValue({});
   db.passwordResetToken.create.mockResolvedValue({});
   db.passwordResetToken.deleteMany.mockResolvedValue({});
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
+
+describe("registerPatient — demo mode", () => {
+  /**
+   * On the public portfolio deployment no mail provider can reach a stranger's
+   * inbox, so registration has to produce a usable account on its own. What
+   * must NOT change is anything security-relevant — the password is still
+   * bcrypt-hashed, and the enumeration-resistant silence on a duplicate address
+   * still holds.
+   */
+  beforeEach(() => {
+    vi.stubEnv("NEXT_PUBLIC_DEMO_MODE", "true");
+  });
+
+  it("creates the account already verified and sends no email", async () => {
+    db.user.findUnique.mockResolvedValue(null);
+
+    await registerPatient(VALID_REGISTRATION);
+
+    expect(db.user.create.mock.calls[0][0].data.emailVerified).toBe(true);
+    expect(mail.sendVerificationEmail).not.toHaveBeenCalled();
+    expect(db.verificationToken.create).not.toHaveBeenCalled();
+  });
+
+  it("still bcrypt-hashes the password", async () => {
+    db.user.findUnique.mockResolvedValue(null);
+
+    await registerPatient(VALID_REGISTRATION);
+
+    const { passwordHash } = db.user.create.mock.calls[0][0].data;
+    expect(passwordHash).not.toBe(VALID_REGISTRATION.password);
+    expect(passwordHash).toMatch(/^\$2[aby]\$12\$/);
+  });
+
+  it("verifies an existing unverified account instead of emailing it", async () => {
+    db.user.findUnique.mockResolvedValue({ id: "user-9", emailVerified: false });
+
+    await registerPatient(VALID_REGISTRATION);
+
+    expect(db.user.update).toHaveBeenCalledWith({
+      where: { id: "user-9" },
+      data: { emailVerified: true },
+    });
+    expect(mail.sendVerificationEmail).not.toHaveBeenCalled();
+  });
+
+  it("still says nothing about an already-verified address", async () => {
+    db.user.findUnique.mockResolvedValue({ id: "user-9", emailVerified: true });
+
+    await expect(registerPatient(VALID_REGISTRATION)).resolves.toBeUndefined();
+
+    expect(db.user.create).not.toHaveBeenCalled();
+    expect(db.user.update).not.toHaveBeenCalled();
+  });
 });
 
 describe("registerPatient", () => {

@@ -23,7 +23,7 @@
 | **Server actions** | ✅ 100% — `lib/actions/`, 15 actions behind a typed result wrapper |
 | Middleware | ✅ done (Phase 1) |
 | Migrations | ✅ applied to Supabase; partial index verified in-database |
-| Tests | ✅ 146 unit + 36 integration + 3 Playwright e2e |
+| Tests | ✅ 150 unit + 36 integration + 3 Playwright e2e |
 | Deploy/observability | ✅ hourly cron in `vercel.json`, Sentry initialised (no source maps yet) |
 
 **Overall: the server tier is done.** All six phases are complete, plus a
@@ -130,7 +130,7 @@ advisory locks and prepared statements `prisma migrate` relies on. Runtime
 queries must *use* the pooler, because serverless functions open far more
 connections than a direct link survives.
 
-Seeded logins: `admin@demo.com` / `Admin123!`, `patient1@demo.com` …
+Seeded logins: `admin@demo.com` / `AdminDemo123!`, `patient1@demo.com` …
 `patient10@demo.com` / `Patient123!`.
 
 ### Debugging note: P1001 does not always mean "unreachable"
@@ -1005,6 +1005,78 @@ regression — `signOut` only clears cookies and never touches the landing page,
 so the changed code is not on that path. Left as-is; worth a retry policy in
 `playwright.config.ts` if it recurs.
 
+## Phase 8 — Make the public deployment usable ✅ DONE
+
+The project is deployed as a portfolio piece, not for a real clinic. That
+changes what "done" means: a stranger who opens the URL has to be able to
+exercise the whole product without anyone emailing them.
+
+| File | Action | Result |
+|---|---|---|
+| `lib/demo.ts` | **new** | ✅ `isDemoMode()` + the seeded demo accounts |
+| `lib/accounts.ts` | fix | ✅ demo registration creates a verified account, sends no email |
+| `lib/actions/auth.ts` | **new** | ✅ `signOutAction` — **fixes a real bug, see below** |
+| `app/(admin)/layout.tsx`, `app/(patient)/layout.tsx`, `components/shared/patient-mobile-nav.tsx` | fix | ✅ all three sign-out buttons now work |
+| `app/(public)/login/page.tsx` | extend | ✅ one-click demo sign-in panel |
+| `app/(public)/register/page.tsx`, `app/api/auth/register/route.ts` | fix | ✅ success copy matches what actually happened |
+| `prisma/seed.ts` | fix | ✅ admin password now `AdminDemo123!`, above the 10-char minimum |
+| `.env.example` | extend | ✅ `NEXT_PUBLIC_DEMO_MODE` documented |
+
+**Gate met:** `typecheck` ✅ · `lint` ✅ · `test` ✅ **150/150** (was 146) ·
+`build` ✅ · `test:integration` ✅ 36/36 · `e2e` ✅ 3/3 · database back to seed
+state.
+
+### Sign out was broken everywhere, and no test could have caught it
+
+All three sign-out controls used:
+
+```tsx
+<form action="/api/auth/signout" method="POST">
+```
+
+NextAuth v5 requires a `csrfToken` field in that POST body and rejects the
+request without one. The session survived; the button did nothing. Found by
+clicking it during the manual smoke test.
+
+The reason five phases of testing missed it is worth recording: the e2e helper
+signs out by calling `page.context().clearCookies()`, so **no test ever pressed
+the button.** A fixture that takes a shortcut around the UI cannot defend the UI.
+
+Replaced with a server action calling NextAuth's own `signOut({ redirectTo:
+"/" })`. Verified in a browser against a production build.
+
+### Why registration cannot send email from this deployment
+
+`lib/email.ts` throws in production when `RESEND_API_KEY` is unset — correct for
+a real clinic, fatal for a demo, because registration is the first thing a
+visitor tries. Setting the key does not fix it either: Resend will not deliver
+to an arbitrary recipient without a verified sending domain, and a
+`*.vercel.app` subdomain cannot be verified because we do not control that DNS.
+
+So on the demo deployment `NEXT_PUBLIC_DEMO_MODE=true` makes registration create
+the account already verified and skip the email. What it does **not** change:
+bcrypt cost 12, the enumeration-resistant silence on a duplicate address, or any
+authorisation check. Asserted in `tests/unit/accounts.test.ts`.
+
+Set a real `RESEND_API_KEY` with a verified domain and turn the flag off, and the
+original verification flow runs unchanged — it was never removed.
+
+### The demo panel exists because registration cannot reach the admin side
+
+`registerPatient` only ever creates a `PATIENT`. The admin and dentist
+dashboards — a large share of what this project demonstrates — are unreachable by
+signing up. The sign-in page therefore offers one-click sign-in as the seeded
+patient and admin, with the credentials printed on the page. They are seed data,
+not secrets. The panel disappears entirely when the flag is off.
+
+### A test-isolation bug found on the way
+
+Vitest loads `.env`, so setting `NEXT_PUBLIC_DEMO_MODE=true` for local work
+silently flipped the registration path under five existing tests in
+`tests/unit/accounts.test.ts`. The file now pins the variable with
+`vi.stubEnv` in its own `beforeEach` rather than inheriting whatever a developer
+happens to have set. Worth remembering for any future env-dependent branch.
+
 ## Timeline
 
 | Phase | Effort | Status |
@@ -1017,6 +1089,7 @@ so the changed code is not on that path. Left as-is; worth a retry policy in
 | 5 — Actions + handlers | 4d | ✅ done, e2e verified |
 | 6 — Cron + deploy | 2d | ✅ done, cron + e2e verified |
 | 7 — Landing sections | 0.5d | ✅ done, verified in the browser |
+| 8 — Public demo usability | 0.5d | ✅ done, sign-out bug fixed |
 | **Total** | **~15 working days (3 weeks)** | |
 
 **Critical path:** 0 → 1 → 3 → 4 → 5. Phase 2 blocks manual testing but not
@@ -1111,10 +1184,9 @@ The server tier is finished. These are the remaining non-code items.
       still be set explicitly.
 - [ ] **Supabase API keys (anon / service role).** Still empty. Dentist photo
       upload is the one Phase 5 item left undone and needs them.
-- [ ] **Change the seeded `admin@demo.com` password.** `Admin123!` is 9
-      characters — below the 10-character minimum — so that account works but
-      cannot reset to its own password. Replace the seeded credentials before
-      anyone real logs in.
+- [x] ~~**Change the seeded `admin@demo.com` password.**~~ Done in Phase 8 —
+      now `AdminDemo123!`, above the 10-character minimum, so the account can
+      reset its own password.
 - [ ] **Verify the Resend sending domain** and set `EMAIL_FROM` to it. Without a
       key, production email *throws* rather than silently dropping.
 - [ ] **Configure Twilio WhatsApp** or accept email-only reminders. The sweep

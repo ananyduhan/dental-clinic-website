@@ -17,7 +17,10 @@ async function main() {
   await prisma.passwordResetToken.deleteMany();
   await prisma.user.deleteMany();
 
-  const passwordHash = await bcrypt.hash("Admin123!", 12);
+  // "Admin123!" was 9 characters — below the 10-character minimum in
+  // lib/validators/auth.ts, so the account worked but could never reset to
+  // its own password. Keep every seeded credential above that floor.
+  const passwordHash = await bcrypt.hash("AdminDemo123!", 12);
   const patientPasswordHash = await bcrypt.hash("Patient123!", 12);
 
   // Admin user
@@ -234,7 +237,7 @@ async function main() {
   await prisma.appointment.createMany({ data: appointmentData });
 
   console.log(`Seeded:`);
-  console.log(`  1 admin (admin@demo.com / Admin123!)`);
+  console.log(`  1 admin (admin@demo.com / AdminDemo123!)`);
   console.log(`  3 dentists`);
   console.log(`  5 services`);
   console.log(`  10 patients (patient1@demo.com … patient10@demo.com / Patient123!)`);

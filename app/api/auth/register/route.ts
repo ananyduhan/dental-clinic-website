@@ -3,6 +3,7 @@ import { registerPatient } from "@/lib/accounts";
 import { handleApiError } from "@/lib/errors";
 import { clientIpFrom, enforceRateLimit } from "@/lib/rate-limit";
 import { registerSchema } from "@/lib/validators/auth";
+import { isDemoMode } from "@/lib/demo";
 
 /**
  * POST /api/auth/register
@@ -19,7 +20,13 @@ export async function POST(req: NextRequest) {
     await registerPatient(input);
 
     return NextResponse.json(
-      { data: { message: "Check your email for a verification link." } },
+      {
+        data: {
+          message: isDemoMode()
+            ? "Your account is ready — you can sign in now."
+            : "Check your email for a verification link.",
+        },
+      },
       { status: 201 },
     );
   } catch (err) {

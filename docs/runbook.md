@@ -315,7 +315,7 @@ pnpm db:reset                  # reset + reseed — dev DB only
 pnpm dev
 ```
 
-Login as `admin@demo.com / Admin123!` from the seed.
+Login as `admin@demo.com / AdminDemo123!` from the seed.
 
 ---
 

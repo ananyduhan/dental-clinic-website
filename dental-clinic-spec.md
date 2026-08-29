@@ -391,7 +391,7 @@ NEXT_PUBLIC_APP_URL=http://localhost:3000
 ## Seed Data (for demo/testing)
 
 Create a seed script that generates:
-- 1 admin user (admin@demo.com / password: Admin123!)
+- 1 admin user (admin@demo.com / password: AdminDemo123!)
 - 3 dentists with different specialisations and weekly availability
 - 5 services (Checkup 30min, Cleaning 45min, Filling 60min, Root Canal 90min, Whitening 60min)
 - 10 test patients

@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
+import { DEMO_ACCOUNTS, isDemoMode, type DemoAccount } from "@/lib/demo";
 
 /**
  * Resolve where to send the user after a successful sign-in.
@@ -28,6 +29,57 @@ function safeRedirectTarget(raw: string | null): string {
   if (!raw) return fallback;
   if (!raw.startsWith("/") || raw.startsWith("//")) return fallback;
   return raw;
+}
+
+/**
+ * One-click sign-in for the public demo deployment.
+ *
+ * Registration only ever creates a PATIENT, so without this the admin and
+ * dentist dashboards are unreachable to anyone visiting the deployed site.
+ * These credentials are seed data and are printed on the page on purpose —
+ * see lib/demo.ts. The panel disappears entirely when NEXT_PUBLIC_DEMO_MODE
+ * is not "true".
+ */
+function DemoSignIn({
+  isPending,
+  onPick,
+}: {
+  isPending: boolean;
+  onPick: (account: DemoAccount) => void;
+}) {
+  return (
+    <div className="mt-6 pt-6 border-t border-[var(--color-border)]">
+      <p className="text-xs font-semibold uppercase tracking-widest text-[var(--color-text-soft)] text-center mb-3">
+        Or explore the demo
+      </p>
+      <div className="flex flex-col gap-2">
+        {DEMO_ACCOUNTS.map((account) => (
+          <button
+            key={account.email}
+            type="button"
+            disabled={isPending}
+            onClick={() => onPick(account)}
+            className="w-full text-left rounded-[var(--radius-card)] border border-[var(--color-border)] bg-[var(--color-canvas)] px-4 py-3 transition-all duration-[var(--duration-fast)] hover:border-[var(--color-cta)] hover:bg-[var(--color-surface)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-cta)] focus-visible:ring-offset-2 active:scale-[0.99] disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <span className="flex items-center justify-between gap-2">
+              <span className="text-sm font-semibold text-[var(--color-text)]">
+                Sign in as {account.label}
+              </span>
+              <span className="text-xs font-mono text-[var(--color-text-soft)]">
+                {account.email}
+              </span>
+            </span>
+            <span className="block text-xs text-[var(--color-text-soft)] mt-0.5">
+              {account.description}
+            </span>
+          </button>
+        ))}
+      </div>
+      <p className="text-xs text-[var(--color-text-soft)] text-center mt-3">
+        Sample data. Anything you change here is visible to other visitors.
+      </p>
+    </div>
+  );
 }
 
 function LoginForm() {
@@ -157,6 +209,13 @@ function LoginForm() {
             )}
           </Button>
         </form>
+
+        {isDemoMode() && (
+          <DemoSignIn
+            isPending={isPending}
+            onPick={(account) => onSubmit({ email: account.email, password: account.password })}
+          />
+        )}
 
         <div className="mt-6 text-center">
           <p className="text-sm text-[var(--color-text-soft)]">

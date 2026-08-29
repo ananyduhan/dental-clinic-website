@@ -15,7 +15,7 @@
 
 | Layer | State |
 |---|---|
-| Design system, UI components, pages | ~90% — complete and good |
+| Design system, UI components, pages | ✅ complete; landing sections read the live catalogue as of Phase 7 |
 | Prisma schema, seed script | ~95% — one bug, one missing column |
 | `lib/` helpers (email, whatsapp, export, rate-limit, errors, auth config) | ~85% — written, but nothing calls them |
 | Zod validators | ~90% — auth aligned to `security.md`; booking fields still drift |
@@ -23,13 +23,15 @@
 | **Server actions** | ✅ 100% — `lib/actions/`, 15 actions behind a typed result wrapper |
 | Middleware | ✅ done (Phase 1) |
 | Migrations | ✅ applied to Supabase; partial index verified in-database |
-| Tests | ✅ 134 unit + 36 integration + 3 Playwright e2e |
+| Tests | ✅ 146 unit + 36 integration + 3 Playwright e2e |
 | Deploy/observability | ✅ hourly cron in `vercel.json`, Sentry initialised (no source maps yet) |
 
-**Overall: the server tier is done.** All six phases are complete. A patient can
-register, verify, book, view, and cancel; an admin manages everything and
-exports; reminders go out hourly. What is left is the launch checklist at the
-bottom of this document, not more building.
+**Overall: the server tier is done.** All six phases are complete, plus a
+Phase 7 that took the landing page off mock data. A patient can register, verify,
+book, view, and cancel; an admin manages everything and exports; reminders go out
+hourly; and the public site advertises the services and dentists that actually
+exist. What is left is the launch checklist at the bottom of this document, not
+more building.
 
 ---
 
@@ -698,11 +700,12 @@ patient dashboard · patient appointments · admin dashboard (including the
 hardcoded "247 patients") · booking form · cancel button · profile form ·
 admin appointments / patients / dentists / services / export.
 
-**Left alone: `components/landing/{services,dentists}-section.tsx`.** Not on the
-plan's list, and they carry marketing-only fields with no schema equivalent —
-emoji icons, gradient classes, "popular" flags, qualifications. Wiring them would
-mean either losing that content or adding columns for it. Flagged as an open
-item, not silently expanded into.
+**Left alone at the time: `components/landing/{services,dentists}-section.tsx`.**
+Not on the plan's list, and they carried marketing-only fields with no schema
+equivalent — emoji icons, gradient classes, "popular" flags, qualifications.
+Wiring them would have meant either losing that content or adding columns for
+it. Flagged as an open item, not silently expanded into. **Done in Phase 7
+below.**
 
 ### Decisions and fixes worth knowing
 
@@ -916,6 +919,92 @@ run — 20 appointments, 14 users, 3 dentists, 5 services, exactly the seed stat
 
 Browsers are not vendored: `npx playwright install chromium` once.
 
+## Phase 7 — Landing sections off mock data ✅ DONE
+
+| File | Action | Result |
+|---|---|---|
+| `lib/marketing.ts` | **new** | ✅ the documented home for presentation-only catalogue metadata |
+| `components/landing/services-section.tsx` | rewrite | ✅ reads `listActiveServices()` |
+| `components/landing/dentists-section.tsx` | rewrite | ✅ reads `listActiveDentists()` |
+| `app/page.tsx` | fix | ✅ `force-dynamic`, each grid behind its own Suspense boundary |
+| `tailwind.config.ts` | fix | ✅ `./lib/**` added to `content` |
+| `tests/unit/marketing.test.ts` | **new** | ✅ 12 tests |
+
+**Gate met:** `typecheck` ✅ · `lint` ✅ · `test` ✅ **146/146** (was 134) ·
+`build` ✅ · `test:integration` ✅ 36/36 · `e2e` ✅ 3/3 · database back to seed
+state (20 appointments, 14 users, 3 dentists, 5 services, 0 leftover rows).
+
+### The landing page was advertising three dentists who do not exist
+
+`DENTISTS` listed Dr. Sarah Chen, Dr. James Patel, and Dr. Emily Walker with
+qualifications (`BDS (Hons) · FRACDS`, `MOrth`, `MDentSci`) and biographies. The
+database has Dr. James Smith, Dr. Li Chen, and Dr. Priya Patel. Not one card
+matched a real person, and the six hardcoded services matched none of the five
+real ones on name or duration. That is the whole reason this was worth doing
+before launch rather than after.
+
+### Where the marketing-only fields ended up — the open question, answered
+
+`lib/marketing.ts`, keyed off database rows, with a fallback on every lookup:
+
+- **Icons and the "Popular" badge** — a `Map` keyed by `Service.name`. Name is
+  the only stable public handle a service has; the schema carries no slug. A
+  rename in the admin UI drops the entry back to a default icon, which is why
+  the fallback has to be presentable rather than empty.
+- **Card colours** — a four-entry palette indexed by list position.
+- **Initials** — derived from the name, not stored.
+- **Qualifications** — **dropped, not migrated.** There is no source of truth
+  for them, and the prototype's values were invented alongside the invented
+  dentists. Publishing fabricated professional credentials next to a real
+  clinician's name is worse than publishing none. If the clinic wants them,
+  they are a `Dentist` column plus an admin field — real data, real schema.
+
+The rule the module states for itself: anything that is a fact about a real
+person or a real service belongs in the database; only chrome lives here.
+
+### Three things the rewrite fixed on the way past
+
+1. **A prototype-pollution bug in the icon lookup, caught by its own test.**
+   `SERVICE_MARKETING["constructor"]` on an object literal walks up to
+   `Object.prototype` and returns a truthy function, which sails straight past
+   the `?? fallback` and renders a card with an `undefined` icon. The key is
+   admin-controlled text, so this is reachable. Fixed by using a `Map`.
+
+2. **The gradients contradicted the design system.** The dentist cards used
+   `bg-gradient-to-br` with three hardcoded hexes, one of which (`#a8d5c5`) was
+   not a token at all. `docs/design-system.md` says it twice — "the system is
+   colour-block throughout", "don't introduce gradient fills". The rewrite uses
+   solid token blocks.
+
+3. **Hashing the dentist id was tried and reverted.** Hashing keeps a dentist's
+   colour stable when a colleague joins — but with three dentists over four
+   buckets a collision is more likely than not, and the clinic's three real
+   cards came out two-of-three identical, which reads as a bug. Position-indexed
+   assignment guarantees the first four are distinct. Distinctness on the page
+   every visitor sees beats stability across a hiring event nobody sees.
+
+### Why `force-dynamic` and not ISR
+
+`revalidate` would cache the marketing page nicely, but the sections catch their
+own read failures and render a "call the clinic" state — and ISR would then cache
+*that* for the whole revalidate window. `force-dynamic` matches the idiom already
+used by `book/page.tsx` and `dashboard/page.tsx`, and Suspense keeps the cost off
+the critical path: the hero and about copy paint immediately while each grid
+streams in behind its own skeleton. A deactivated dentist now disappears from the
+public site on the next page load rather than the next deploy.
+
+Loading, empty, and error states are implemented for both grids, per `CLAUDE.md`.
+
+### One e2e flake, investigated and cleared
+
+The full suite failed once on "an admin confirms a booking", timing out at
+`page.goto("/login")` waiting for `#email`. Re-running that test in isolation
+passed in 3.3s, and a second full run went 3/3 in 24s against the 1.4m of the
+failing run. Load-related flake in the fixture's sign-in helper, not a
+regression — `signOut` only clears cookies and never touches the landing page,
+so the changed code is not on that path. Left as-is; worth a retry policy in
+`playwright.config.ts` if it recurs.
+
 ## Timeline
 
 | Phase | Effort | Status |
@@ -927,6 +1016,7 @@ Browsers are not vendored: `npx playwright install chromium` once.
 | 4 — Domain | 3.5d | ✅ done, race gate passed |
 | 5 — Actions + handlers | 4d | ✅ done, e2e verified |
 | 6 — Cron + deploy | 2d | ✅ done, cron + e2e verified |
+| 7 — Landing sections | 0.5d | ✅ done, verified in the browser |
 | **Total** | **~15 working days (3 weeks)** | |
 
 **Critical path:** 0 → 1 → 3 → 4 → 5. Phase 2 blocks manual testing but not
@@ -990,10 +1080,15 @@ Phase 4's blockers were answered before it was built — recorded in full under
   Phase 5 item left undone: dentist profile photo upload has no Supabase Storage
   integration and no upload UI. Add the keys from the Sydney project and it
   becomes a small, self-contained piece of work.
-- `components/landing/{services,dentists}-section.tsx` still render hardcoded
-  marketing content, including dentists who are not in the database. Wiring them
-  needs a decision about where the marketing-only fields (icons, gradients,
-  qualifications) should live.
+- ~~`components/landing/{services,dentists}-section.tsx` render hardcoded
+  marketing content.~~ **Done — see Phase 7.**
+- **The hero and footer still carry unverified marketing claims.**
+  `components/landing/hero.tsx` shows "4.9 · Rated #1 in Sydney CBD", "8,000+
+  Happy patients", "97% Satisfaction rate" and a testimonial from "Sarah M.,
+  patient". `components/shared/footer.tsx` lists "Orthodontics" and "Emergency
+  Care" as services the clinic does not have rows for. Same class of problem
+  Phase 7 fixed in the two grids, different files — these are prototype copy, so
+  someone has to confirm or replace each claim before launch.
 - `CLAUDE.md` still carries unfilled template placeholders: `{{Clinic Name}}`,
   `{{Australia/Sydney}}`.
 
@@ -1028,7 +1123,16 @@ The server tier is finished. These are the remaining non-code items.
 - [ ] **Confirm the cron is registered** after the first deploy: Vercel →
       Cron Jobs. `vercel.json` declares it, but check it actually appears.
 - [ ] **Wire `withSentryConfig`** if readable production stack traces matter.
-- [ ] **`components/landing/{services,dentists}-section.tsx`** still render
-      hardcoded marketing content, including dentists who are not in the
-      database. Decide where the marketing-only fields (icons, gradients,
-      qualifications) should live before launch.
+- [x] ~~**`components/landing/{services,dentists}-section.tsx`** still render
+      hardcoded marketing content.~~ Done — see Phase 7.
+- [ ] **Confirm or replace the remaining prototype marketing copy.**
+      `hero.tsx` claims "4.9 · Rated #1 in Sydney CBD", "8,000+ Happy patients",
+      "97% Satisfaction rate", and quotes a patient testimonial; `footer.tsx`
+      lists two services the clinic has no rows for. Someone with authority over
+      the clinic's claims needs to sign these off — a rating and a patient quote
+      are not things this repo can verify.
+- [ ] **Add Upstash credentials, or make their absence loud.**
+      `UPSTASH_REDIS_REST_URL` / `_TOKEN` are empty, and `lib/rate-limit.ts`
+      returns `null` when they are — so rate limiting on the auth and booking
+      endpoints is currently a silent no-op. The security checklist assumes it
+      is on.

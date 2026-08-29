@@ -6,6 +6,9 @@ const config: Config = {
     "./pages/**/*.{js,ts,jsx,tsx,mdx}",
     "./components/**/*.{js,ts,jsx,tsx,mdx}",
     "./app/**/*.{js,ts,jsx,tsx,mdx}",
+    // lib/marketing.ts holds the landing page's card-style class strings; without
+    // this glob the JIT never sees them and purges the classes out of the build.
+    "./lib/**/*.{js,ts}",
   ],
   theme: {
     extend: {

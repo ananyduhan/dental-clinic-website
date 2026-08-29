@@ -1,35 +1,143 @@
+import Image from "next/image";
 import Link from "next/link";
-import { ArrowRight } from "lucide-react";
+import { Suspense } from "react";
+import { AlertCircle, ArrowRight } from "lucide-react";
 
-const DENTISTS = [
-  {
-    name: "Dr. Sarah Chen",
-    specialisation: "General & Preventive Dentistry",
-    bio: "With over 12 years of experience, Dr. Chen specialises in making every patient feel at ease. She's passionate about preventive care and oral health education.",
-    initials: "SC",
-    color: "from-[#d4e9e2] to-[#a8d5c5]",
-    textColor: "text-[var(--color-feature)]",
-    qualifications: "BDS (Hons) · FRACDS",
-  },
-  {
-    name: "Dr. James Patel",
-    specialisation: "Orthodontics & Smile Design",
-    bio: "Dr. Patel combines the latest Invisalign technology with a meticulous eye for aesthetics. He's helped hundreds of patients achieve their dream smiles.",
-    initials: "JP",
-    color: "from-[#1E3932] to-[#2b5148]",
-    textColor: "text-white",
-    qualifications: "BDSc · MOrth · MRACDS",
-  },
-  {
-    name: "Dr. Emily Walker",
-    specialisation: "Cosmetic & Restorative Dentistry",
-    bio: "A cosmetic dentistry specialist with a genuine love for artistry. Dr. Walker transforms smiles through porcelain veneers, whitening, and full-mouth rehabilitation.",
-    initials: "EW",
-    color: "from-[#006241] to-[#00754A]",
-    textColor: "text-white",
-    qualifications: "BDS · MFDS · MDentSci",
-  },
-];
+import { listActiveDentists } from "@/lib/catalogue";
+import { dentistCardStyle, initialsOf } from "@/lib/marketing";
+import { Skeleton } from "@/components/ui/skeleton";
+
+const CLINIC_PHONE_DISPLAY = "(02) 9876 5432";
+const CLINIC_PHONE_HREF = "tel:+61298765432";
+
+function DentistsGridSkeleton() {
+  return (
+    <div
+      className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"
+      aria-hidden="true"
+    >
+      {[1, 2, 3].map((i) => (
+        <div
+          key={i}
+          className="bg-[var(--color-surface)] rounded-[var(--radius-card)] shadow-[var(--shadow-card)] overflow-hidden"
+        >
+          <Skeleton className="h-48 w-full rounded-none" />
+          <div className="p-6">
+            <Skeleton className="h-5 w-40 mb-2" />
+            <Skeleton className="h-4 w-32 mb-4" />
+            <Skeleton className="h-3 w-full mb-2" />
+            <Skeleton className="h-3 w-5/6 mb-5" />
+            <Skeleton className="h-4 w-28" />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** Same reasoning as the services grid: degrade to the phone, never 500. */
+function DentistsUnavailable({ heading }: { heading: string }) {
+  return (
+    <div
+      role="alert"
+      className="flex flex-col items-center justify-center rounded-[var(--radius-card)] border border-[var(--color-border)] bg-[var(--color-surface)] py-16 px-6 text-center"
+    >
+      <AlertCircle className="h-7 w-7 text-[var(--color-error)] mb-3" />
+      <p className="text-base font-semibold text-[var(--color-text)] mb-2">
+        {heading}
+      </p>
+      <p className="text-sm text-[var(--color-text-soft)] max-w-sm">
+        Give us a call on{" "}
+        <a
+          href={CLINIC_PHONE_HREF}
+          className="font-semibold text-[var(--color-cta)] hover:text-[#005a38] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-cta)] focus-visible:ring-offset-2 rounded-sm transition-colors"
+        >
+          {CLINIC_PHONE_DISPLAY}
+        </a>{" "}
+        and our reception team will match you with the right dentist.
+      </p>
+    </div>
+  );
+}
+
+async function DentistsGrid() {
+  let dentists;
+  try {
+    dentists = await listActiveDentists();
+  } catch {
+    return <DentistsUnavailable heading="Couldn't load our team" />;
+  }
+
+  if (dentists.length === 0) {
+    return <DentistsUnavailable heading="Our team page is being updated" />;
+  }
+
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+      {dentists.map(
+        (
+          { id, firstName, lastName, specialisation, bio, profilePhotoUrl },
+          index,
+        ) => {
+          const style = dentistCardStyle(index);
+          const fullName = `Dr. ${firstName} ${lastName}`;
+
+          return (
+            <article
+              key={id}
+              className="bg-[var(--color-surface)] rounded-[var(--radius-card)] shadow-[var(--shadow-card)] overflow-hidden group hover:shadow-[var(--shadow-lg)] hover:-translate-y-1 transition-all duration-[var(--duration-normal)]"
+            >
+              {/* Photo when Supabase Storage has one, initials medallion otherwise. */}
+              <div
+                className={`relative h-48 ${style.header} flex items-center justify-center`}
+              >
+                {profilePhotoUrl ? (
+                  <Image
+                    src={profilePhotoUrl}
+                    alt={`Portrait of ${fullName}`}
+                    fill
+                    sizes="(max-width: 768px) 100vw, (max-width: 1024px) 50vw, 33vw"
+                    className="object-cover"
+                  />
+                ) : (
+                  <div
+                    className={`h-24 w-24 rounded-full border-2 flex items-center justify-center text-2xl font-bold backdrop-blur-sm ${style.medallion} ${style.initials}`}
+                    aria-hidden="true"
+                  >
+                    {initialsOf(firstName, lastName)}
+                  </div>
+                )}
+              </div>
+
+              {/* Content */}
+              <div className="p-6">
+                <h3 className="text-lg font-semibold text-[var(--color-text)] mb-0.5">
+                  {fullName}
+                </h3>
+                <p className="text-sm font-medium text-[var(--color-cta)] mb-4">
+                  {specialisation}
+                </p>
+                {bio && (
+                  <p className="text-sm text-[var(--color-text-soft)] leading-relaxed">
+                    {bio}
+                  </p>
+                )}
+
+                <Link
+                  href="/book"
+                  className="mt-5 inline-flex items-center gap-1.5 text-sm font-semibold text-[var(--color-cta)] hover:text-[#005a38] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-cta)] focus-visible:ring-offset-2 rounded-sm transition-colors group-hover:gap-2.5 duration-[var(--duration-fast)]"
+                >
+                  Book with Dr. {lastName}
+                  <ArrowRight className="h-3.5 w-3.5" />
+                </Link>
+              </div>
+            </article>
+          );
+        },
+      )}
+    </div>
+  );
+}
 
 export function DentistsSection() {
   return (
@@ -51,45 +159,17 @@ export function DentistsSection() {
           </div>
           <Link
             href="/book"
-            className="inline-flex items-center gap-2 text-sm font-semibold text-[var(--color-cta)] hover:text-[#005a38] transition-colors shrink-0"
+            className="inline-flex items-center gap-2 text-sm font-semibold text-[var(--color-cta)] hover:text-[#005a38] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-cta)] focus-visible:ring-offset-2 rounded-sm transition-colors shrink-0"
           >
             Book with your preferred dentist
             <ArrowRight className="h-4 w-4" />
           </Link>
         </div>
 
-        {/* Dentist cards */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {DENTISTS.map(({ name, specialisation, bio, initials, color, textColor, qualifications }) => (
-            <article
-              key={name}
-              className="bg-[var(--color-surface)] rounded-[var(--radius-card)] shadow-[var(--shadow-card)] overflow-hidden group hover:shadow-[var(--shadow-lg)] hover:-translate-y-1 transition-all duration-[var(--duration-normal)]"
-            >
-              {/* Avatar area */}
-              <div className={`h-48 bg-gradient-to-br ${color} flex items-center justify-center`}>
-                <div className={`h-24 w-24 rounded-full bg-white/20 border-2 border-white/30 flex items-center justify-center text-2xl font-bold ${textColor} backdrop-blur-sm`}>
-                  {initials}
-                </div>
-              </div>
-
-              {/* Content */}
-              <div className="p-6">
-                <h3 className="text-lg font-semibold text-[var(--color-text)] mb-0.5">{name}</h3>
-                <p className="text-sm font-medium text-[var(--color-cta)] mb-2">{specialisation}</p>
-                <p className="text-xs text-[var(--color-text-soft)] font-mono mb-4">{qualifications}</p>
-                <p className="text-sm text-[var(--color-text-soft)] leading-relaxed">{bio}</p>
-
-                <Link
-                  href="/book"
-                  className="mt-5 inline-flex items-center gap-1.5 text-sm font-semibold text-[var(--color-cta)] hover:text-[#005a38] transition-colors group-hover:gap-2.5 duration-[var(--duration-fast)]"
-                >
-                  Book with {name.split(" ")[1]}
-                  <ArrowRight className="h-3.5 w-3.5" />
-                </Link>
-              </div>
-            </article>
-          ))}
-        </div>
+        {/* Dentist cards — chrome first, the grid streams in behind it. */}
+        <Suspense fallback={<DentistsGridSkeleton />}>
+          <DentistsGrid />
+        </Suspense>
       </div>
     </section>
   );

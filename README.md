@@ -145,7 +145,7 @@ lib/
   actions/          Server Actions (all user-initiated mutations)
   admin/            dentist, service, and roster management
   validators/       Zod schemas, one file per domain
-  reminders.ts      the hourly sweep
+  reminders.ts      the daily day-ahead sweep
 ```
 
 **Mutations are Server Actions.** Route handlers exist only for cron, file
@@ -183,9 +183,9 @@ Full detail: [`docs/booking-flow.md`](./docs/booking-flow.md).
 
 ## Reminders
 
-Vercel Cron hits `/api/cron/reminders` hourly (`vercel.json`). The endpoint
+Vercel Cron hits `/api/cron/reminders` once daily (`vercel.json`). The endpoint
 verifies `Authorization: Bearer ${CRON_SECRET}` **before touching the
-database**, then sweeps appointments starting 23–25 hours out.
+database**, then sweeps appointments starting 24–48 hours out.
 
 Delivery is deliberately **at-most-once**: each appointment is claimed with a
 conditional update before any message is sent, so a retried or overlapping

@@ -17,11 +17,11 @@ import { utcToClinicDateKey } from "@/lib/slots";
 import { sendWhatsAppReminder } from "@/lib/whatsapp";
 
 /**
- * The 24-hour reminder sweep, run hourly by Vercel Cron.
+ * The day-ahead reminder sweep, run once a day by Vercel Cron.
  *
  * See docs/booking-flow.md, "Reminders". The rules that matter:
  *
- *  - Only PENDING and CONFIRMED appointments starting 23-25 hours from now.
+ *  - Only PENDING and CONFIRMED appointments starting 24-48 hours from now.
  *  - WhatsApp first, then email. A failure in either is logged and the other
  *    still goes out.
  *  - `reminderSent` is set even when both providers fail. Reminders are never
@@ -150,12 +150,22 @@ async function findCandidates(
   windowEnd: Date,
   timezone: string,
 ) {
-  const dateKeys = Array.from(
-    new Set([
-      utcToClinicDateKey(windowStart, timezone),
-      utcToClinicDateKey(windowEnd, timezone),
-    ]),
-  );
+  // Every clinic date the window touches, not just its two endpoints. Taking
+  // only the endpoints was correct while the window was two hours wide, but it
+  // skips the middle day the moment the span exceeds 24 hours — a silent
+  // whole-day gap in reminders. Walking the range costs nothing at this size
+  // and removes the trap.
+  const dateKeys: string[] = [];
+  for (
+    let cursor = new Date(windowStart);
+    cursor <= windowEnd;
+    cursor = new Date(cursor.getTime() + 24 * 60 * 60 * 1000)
+  ) {
+    const key = utcToClinicDateKey(cursor, timezone);
+    if (!dateKeys.includes(key)) dateKeys.push(key);
+  }
+  const endKey = utcToClinicDateKey(windowEnd, timezone);
+  if (!dateKeys.includes(endKey)) dateKeys.push(endKey);
 
   const candidates = await prisma.appointment.findMany({
     where: {

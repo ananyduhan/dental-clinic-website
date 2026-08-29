@@ -89,14 +89,14 @@ describe.skipIf(!hasDatabase)("reminders", () => {
     expect(stored.reminderSent).toBe(true);
   });
 
-  it("includes the edges of the 23-25 hour window and excludes outside it", async () => {
+  it("includes the edges of the 24-48 hour window and excludes outside it", async () => {
     for (const [hours, shouldRemind] of [
-      [23, true],
       [24, true],
-      [24.9, true],
-      [22.9, false],
-      [25, false],
-      [30, false],
+      [30, true],
+      [47.9, true],
+      [23.9, false],
+      [48, false],
+      [50, false],
       [2, false],
     ] as const) {
       await prisma.appointment.deleteMany({
@@ -206,24 +206,26 @@ describe.skipIf(!hasDatabase)("reminders", () => {
     expect(stored.reminderSent).toBe(true);
   });
 
-  it("sweeps several appointments in one run", async () => {
+  it("sweeps a whole day of appointments in one run", async () => {
     await bookRaw({ startTime: "10:00" });
     await bookRaw({ startTime: "11:00" });
     await bookRaw({ startTime: "14:00" });
 
-    // 24h before the 10:00 appointment, the 11:00 one is 25h out and the 14:00
-    // one is 28h out — only the first is in the window.
+    // This is the point of the 24-48h window: one daily sweep has to cover
+    // every appointment in the following day. Under the old 23-25h window this
+    // same run claimed only the 10:00 one and the other two needed later runs
+    // that a daily cron would never make.
     const result = await runReminderSweep({
       now: hoursBefore(24),
       timezone: TZ,
     });
-    expect(result.claimed).toBe(1);
+    expect(result.claimed).toBe(3);
 
-    // An hour later, 11:00 comes into range.
+    // And the next day's sweep finds nothing left to do.
     const later = await runReminderSweep({
-      now: new Date(hoursBefore(24).getTime() + 60 * 60 * 1000),
+      now: new Date(hoursBefore(24).getTime() + 24 * 60 * 60 * 1000),
       timezone: TZ,
     });
-    expect(later.claimed).toBe(1);
+    expect(later.claimed).toBe(0);
   });
 });

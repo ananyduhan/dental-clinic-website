@@ -12,7 +12,7 @@
 - Patient registration, login, profile
 - Multi-step appointment booking with real-time slot availability
 - Admin/dentist dashboard for managing appointments, dentists, services, patients
-- Automated email + WhatsApp reminders 24h before appointments
+- Automated email + WhatsApp reminders the day before appointments
 - Excel export of appointment data
 
 **Users:** patients (book appointments), admins (manage everything), dentists (view their schedule).
@@ -175,7 +175,7 @@ This product must NOT look AI-generated.
 - A booked slot must not overlap with an existing PENDING or CONFIRMED appointment for that dentist.
 
 ### Reminders
-- Vercel Cron hits `/api/cron/reminders` every hour.
+- Vercel Cron hits `/api/cron/reminders` once daily (Hobby plan refuses anything more frequent). The sweep covers appointments 24–48h out, so one run catches a whole day.
 - Endpoint must verify the `Authorization: Bearer ${CRON_SECRET}` header.
 - Idempotent: setting `reminder_sent = true` happens in the same transaction as sending.
 - If WhatsApp send fails, log the error but still send email and mark reminder_sent.

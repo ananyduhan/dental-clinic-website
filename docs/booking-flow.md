@@ -215,7 +215,7 @@ No fuzz factor. A patient trying to cancel at 23h59m gets an error with a messag
 - Patient: `PATCH /api/appointments/:id` with `{ action: 'cancel' }`, runs through `lib/appointments/transition.ts`.
 - The appointment row keeps `status = CANCELLED` — we never hard-delete (data integrity, audit trail, no-show tracking).
 - If `reminder_sent = true` already, nothing special happens — the reminder already went out. The cancellation email makes it clear.
-- If a reminder is scheduled but not sent (within the 23–25h window), the reminder job will skip `CANCELLED` appointments on its next run because the WHERE clause excludes them.
+- If a reminder is scheduled but not sent (within the 24–48h window), the reminder job will skip `CANCELLED` appointments on its next run because the WHERE clause excludes them.
 
 ---
 
@@ -239,7 +239,7 @@ Rescheduling is subject to the same 24h rule as cancellation.
 Covered in `docs/runbook.md` operationally. Booking-relevant rules:
 
 - On successful booking, the appointment is eligible for a reminder. No extra row is written — the cron job queries `appointments` directly.
-- The cron endpoint is `/api/cron/reminders`, hit hourly by Vercel Cron (see `vercel.json`). It verifies `Authorization: Bearer ${CRON_SECRET}`.
+- The cron endpoint is `/api/cron/reminders`, hit once daily by Vercel Cron (see `vercel.json`). It verifies `Authorization: Bearer ${CRON_SECRET}`.
 - Query:
   ```ts
   where: {

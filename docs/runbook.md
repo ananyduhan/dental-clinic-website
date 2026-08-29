@@ -190,7 +190,7 @@ Slot generation is pure and unit-tested. If the tests pass and production misbeh
 
 ### Reminders not firing
 
-Reminders run via **Vercel Cron** hitting `/api/cron/reminders` every hour.
+Reminders run via **Vercel Cron** hitting `/api/cron/reminders` once daily at 20:00 UTC (06:00–07:00 Sydney).
 
 1. **Vercel → Cron Jobs** — is the job listed, enabled, and running? Check the last execution timestamp and status.
 2. **Execution logs** — Vercel → the cron invocation → Logs. Look for auth failures (wrong `CRON_SECRET`), DB timeouts, or provider errors.
@@ -205,7 +205,7 @@ Reminders run via **Vercel Cron** hitting `/api/cron/reminders` every hour.
    ORDER BY appointment_date, start_time
    LIMIT 20;
    ```
-   If there are rows due in the 23–25h window and `reminder_sent` is still false, the job is not processing them.
+   If there are rows due in the 24–48h window and `reminder_sent` is still false, the job is not processing them.
 5. **Provider outage** — Twilio or Resend down. Email should still send even if WhatsApp fails (that's the spec); if both are failing, look for an exception before either send.
 
 **Manual trigger** (for testing after a fix):

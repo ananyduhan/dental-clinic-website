@@ -51,7 +51,7 @@
 
 ### Cron (auth via `CRON_SECRET`)
 ```
-/api/cron/reminders         hourly
+/api/cron/reminders         daily
 ```
 
 ---

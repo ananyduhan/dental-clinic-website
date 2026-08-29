@@ -43,11 +43,20 @@ export const SLOT_STEP_MINUTES = 15;
 export const CANCELLATION_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 /**
- * Window the reminder cron sweeps on each hourly run: appointments starting
- * between now+23h and now+25h that have not been reminded yet.
+ * Window the reminder cron sweeps on each daily run: appointments starting
+ * between now+24h and now+48h that have not been reminded yet.
+ *
+ * This is a 24-hour-wide window swept once a day, not the 2-hour window swept
+ * hourly that the first implementation used. Vercel's Hobby plan refuses any
+ * cron expression that fires more than once a day, and a 2-hour window checked
+ * daily would silently skip every appointment outside that one slice.
+ *
+ * The cost is a vaguer promise: a patient is reminded 24-48 hours ahead rather
+ * than at almost exactly 24. `findCandidates` assumes the span is no wider than
+ * a day plus a little; see the note there before widening it further.
  */
-export const REMINDER_WINDOW_START_HOURS = 23;
-export const REMINDER_WINDOW_END_HOURS = 25;
+export const REMINDER_WINDOW_START_HOURS = 24;
+export const REMINDER_WINDOW_END_HOURS = 48;
 
 /** Maximum length of patient-supplied appointment notes. */
 export const MAX_NOTES_LENGTH = 1000;

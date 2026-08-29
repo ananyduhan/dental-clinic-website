@@ -1077,6 +1077,56 @@ silently flipped the registration path under five existing tests in
 `vi.stubEnv` in its own `beforeEach` rather than inheriting whatever a developer
 happens to have set. Worth remembering for any future env-dependent branch.
 
+## Phase 9 — Daily cron, and the window that had to move with it ✅ DONE
+
+Vercel rejected the deploy:
+
+```
+Hobby accounts are limited to daily cron jobs. This cron expression
+(0 * * * *) would run more than once per day.
+```
+
+**The naive fix would have silently broken reminders.** The sweep looked for
+appointments starting 23-25 hours out, which only works because it ran every
+hour. Changing the schedule to daily and leaving that window would mean a single
+run each morning catching only the appointments in one 2-hour slice of the
+following day — every other appointment would never be reminded, with no error
+anywhere. The schedule and the window have to move together.
+
+| File | Change |
+|---|---|
+| `vercel.json` | `0 * * * *` → `0 20 * * *` — 06:00 AEST / 07:00 AEDT Sydney |
+| `lib/constants.ts` | window 23-25h → **24-48h** |
+| `lib/reminders.ts` | sweep every clinic date the window touches, not just its endpoints |
+| `tests/integration/reminders.test.ts` | boundary cases retargeted; the multi-appointment test now asserts a whole day is claimed in one run |
+| `CLAUDE.md`, `README.md`, `docs/{api-conventions,architecture,booking-flow,database,runbook}.md` | "hourly" / "24h before" corrected throughout |
+
+**Gate met:** `typecheck` ✅ · `lint` ✅ · `test` ✅ 150/150 · `build` ✅ ·
+`test:integration` ✅ **36/36**.
+
+### The date-key narrowing was a trap one hour from springing
+
+`findCandidates` narrows to clinic dates before filtering in memory, and it
+built that list from the window's two endpoints only. Correct for a 2-hour
+window. At exactly 24 hours wide it is still correct — a 24-hour span touches at
+most two calendar dates — but it is correct *by one hour of margin*, and the
+next person to widen the window would have introduced a silent whole-day gap in
+reminders with nothing failing.
+
+It now walks the range. Same one or two keys today, no trap tomorrow.
+
+### What was given up
+
+A patient is now reminded **24-48 hours ahead rather than at close to 24**. For
+an appointment at 09:00 the reminder goes out the previous morning — about 24
+hours. For one at 16:00 it also goes out that morning — closer to 41. That is a
+real regression against `docs/booking-flow.md` as originally written, accepted
+deliberately because the alternative on a free plan is no reminders at all.
+
+Restoring the tighter window needs an hourly trigger: Vercel Pro, or a scheduled
+GitHub Actions workflow curling the endpoint with `CRON_SECRET`. The endpoint
+itself needs no changes for either — set the two constants back to 23/25.
+
 ## Timeline
 
 | Phase | Effort | Status |
@@ -1090,6 +1140,7 @@ happens to have set. Worth remembering for any future env-dependent branch.
 | 6 — Cron + deploy | 2d | ✅ done, cron + e2e verified |
 | 7 — Landing sections | 0.5d | ✅ done, verified in the browser |
 | 8 — Public demo usability | 0.5d | ✅ done, sign-out bug fixed |
+| 9 — Daily cron + window | 0.25d | ✅ done, unblocks Hobby deploy |
 | **Total** | **~15 working days (3 weeks)** | |
 
 **Critical path:** 0 → 1 → 3 → 4 → 5. Phase 2 blocks manual testing but not
@@ -1194,6 +1245,9 @@ The server tier is finished. These are the remaining non-code items.
       so this is a launch decision, not a blocker.
 - [ ] **Confirm the cron is registered** after the first deploy: Vercel →
       Cron Jobs. `vercel.json` declares it, but check it actually appears.
+      It is daily (`0 20 * * *`) because Hobby refuses anything more frequent —
+      see Phase 9. On Pro, set it back to hourly *and* restore the 23/25 window
+      constants together; changing only one of the two breaks reminders quietly.
 - [ ] **Wire `withSentryConfig`** if readable production stack traces matter.
 - [x] ~~**`components/landing/{services,dentists}-section.tsx`** still render
       hardcoded marketing content.~~ Done — see Phase 7.

@@ -199,7 +199,7 @@ CREATE INDEX appointments_reminder_scan
 ON appointments (appointment_date, start_time)
 WHERE reminder_sent = false AND status IN ('PENDING', 'CONFIRMED');
 ```
-Cron runs hourly and only cares about unsent reminders on active appointments.
+Cron runs daily and only cares about unsent reminders on active appointments.
 
 ---
 

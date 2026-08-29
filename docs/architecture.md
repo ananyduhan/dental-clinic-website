@@ -74,7 +74,7 @@ These principles drive every design decision below. If a future change conflicts
                                                      │ (errors)│
                                                      └─────────┘
 
-        Vercel Cron ──▶ /api/cron/reminders (hourly)
+        Vercel Cron ──▶ /api/cron/reminders (daily)
 ```
 
 ---
@@ -130,12 +130,12 @@ lib/email.ts: sendBookingConfirmation()  (fire-and-forget, errors logged)
 Return appointment → redirect to /appointments?booked={id}
 ```
 
-The 24h-before reminder is **not** scheduled inline. The hourly cron picks it up later by querying `appointment_date + start_time` against `now()`.
+The day-ahead reminder is **not** scheduled inline. The daily cron picks it up later by querying `appointment_date + start_time` against `now()`.
 
 ### 5.2 Hourly reminder cron
 
 ```
-Vercel Cron (hourly, configured in vercel.json)
+Vercel Cron (daily, configured in vercel.json)
     │  GET /api/cron/reminders
     │  Authorization: Bearer ${CRON_SECRET}
     ▼
@@ -286,7 +286,7 @@ All background work runs as serverless function invocations triggered by **Verce
 
 | Job | Endpoint | Schedule | Purpose |
 |---|---|---|---|
-| Reminders | `/api/cron/reminders` | hourly | Send 24h-before WhatsApp + email. |
+| Reminders | `/api/cron/reminders` | daily | Send day-ahead WhatsApp + email. |
 | (Future) Magic-link cleanup | `/api/cron/cleanup-tokens` | daily | Purge expired NextAuth tokens. |
 | (Future) No-show flagging | `/api/cron/mark-no-shows` | daily | Move past PENDING/CONFIRMED appointments to a `NO_SHOW` status. |
 

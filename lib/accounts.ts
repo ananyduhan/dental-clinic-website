@@ -106,6 +106,37 @@ async function issueVerificationToken(userId: string, email: string): Promise<vo
   await sendVerificationEmail(email, raw);
 }
 
+/**
+ * Re-send the verification link for an address that has not confirmed yet.
+ *
+ * Always resolves, and deliberately does nothing at all when the address has no
+ * account, already has a verified one, or has no password. Each of those cases
+ * is indistinguishable to the caller, which is the point: the route returns one
+ * fixed message either way, so this cannot be used to test which addresses hold
+ * accounts at a dental clinic (docs/security.md).
+ *
+ * Reuses `issueVerificationToken`, so requesting a new link invalidates the
+ * previous one rather than leaving several live at once.
+ *
+ * In demo mode registration verifies accounts outright and no mail is ever
+ * sent, so there is nothing to re-send — see lib/demo.ts.
+ */
+export async function resendVerificationEmail(rawEmail: string): Promise<void> {
+  if (isDemoMode()) return;
+
+  const email = normaliseEmail(rawEmail);
+
+  const user = await prisma.user.findUnique({
+    where: { email },
+    select: { id: true, emailVerified: true, passwordHash: true },
+  });
+
+  if (!user?.passwordHash) return;
+  if (user.emailVerified) return;
+
+  await issueVerificationToken(user.id, email);
+}
+
 export type VerifyEmailResult = "verified" | "already-verified" | "invalid";
 
 /**

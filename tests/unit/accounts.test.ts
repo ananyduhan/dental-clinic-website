@@ -41,7 +41,13 @@ vi.mock("@/lib/email", () => ({
 }));
 
 // Safe as a static import: vitest hoists the vi.mock calls above it.
-import { registerPatient, verifyEmail, requestPasswordReset, resetPassword } from "@/lib/accounts";
+import {
+  registerPatient,
+  verifyEmail,
+  requestPasswordReset,
+  resendVerificationEmail,
+  resetPassword,
+} from "@/lib/accounts";
 
 const VALID_REGISTRATION = {
   firstName: "Jane",
@@ -292,6 +298,99 @@ describe("requestPasswordReset", () => {
 
     const emailed = mail.sendPasswordResetEmail.mock.calls[0][1] as string;
     expect(db.passwordResetToken.create.mock.calls[0][0].data.token).toBe(hashToken(emailed));
+  });
+});
+
+describe("resendVerificationEmail", () => {
+  it("sends a fresh link to an unverified account", async () => {
+    db.user.findUnique.mockResolvedValue({
+      id: "user-1",
+      emailVerified: false,
+      passwordHash: "$2a$12$abc",
+    });
+
+    await resendVerificationEmail("jane@example.com");
+
+    expect(mail.sendVerificationEmail).toHaveBeenCalledOnce();
+  });
+
+  it("normalises the address before looking it up", async () => {
+    db.user.findUnique.mockResolvedValue({
+      id: "user-1",
+      emailVerified: false,
+      passwordHash: "$2a$12$abc",
+    });
+
+    await resendVerificationEmail("  Jane@Example.COM ");
+
+    expect(db.user.findUnique.mock.calls[0][0].where.email).toBe("jane@example.com");
+    expect(mail.sendVerificationEmail.mock.calls[0][0]).toBe("jane@example.com");
+  });
+
+  // The three cases below must be indistinguishable from the caller's side —
+  // the route answers with one fixed sentence for all of them.
+  it("resolves silently for an unknown address", async () => {
+    db.user.findUnique.mockResolvedValue(null);
+
+    await expect(resendVerificationEmail("nobody@example.com")).resolves.toBeUndefined();
+    expect(mail.sendVerificationEmail).not.toHaveBeenCalled();
+  });
+
+  it("resolves silently when the address is already verified", async () => {
+    db.user.findUnique.mockResolvedValue({
+      id: "user-1",
+      emailVerified: true,
+      passwordHash: "$2a$12$abc",
+    });
+
+    await expect(resendVerificationEmail("jane@example.com")).resolves.toBeUndefined();
+    expect(mail.sendVerificationEmail).not.toHaveBeenCalled();
+  });
+
+  it("resolves silently for an account with no password set", async () => {
+    db.user.findUnique.mockResolvedValue({
+      id: "user-1",
+      emailVerified: false,
+      passwordHash: null,
+    });
+
+    await expect(resendVerificationEmail("magic@example.com")).resolves.toBeUndefined();
+    expect(mail.sendVerificationEmail).not.toHaveBeenCalled();
+  });
+
+  it("supersedes any outstanding token rather than leaving two live", async () => {
+    db.user.findUnique.mockResolvedValue({
+      id: "user-1",
+      emailVerified: false,
+      passwordHash: "$2a$12$abc",
+    });
+
+    await resendVerificationEmail("jane@example.com");
+
+    expect(db.verificationToken.deleteMany).toHaveBeenCalledWith({
+      where: { userId: "user-1" },
+    });
+  });
+
+  it("stores only the hash of the emailed token", async () => {
+    db.user.findUnique.mockResolvedValue({
+      id: "user-1",
+      emailVerified: false,
+      passwordHash: "$2a$12$abc",
+    });
+
+    await resendVerificationEmail("jane@example.com");
+
+    const emailed = mail.sendVerificationEmail.mock.calls[0][1] as string;
+    expect(db.verificationToken.create.mock.calls[0][0].data.token).toBe(hashToken(emailed));
+  });
+
+  it("does nothing in demo mode, where nothing is ever sent", async () => {
+    vi.stubEnv("NEXT_PUBLIC_DEMO_MODE", "true");
+
+    await expect(resendVerificationEmail("jane@example.com")).resolves.toBeUndefined();
+    expect(db.user.findUnique).not.toHaveBeenCalled();
+    expect(mail.sendVerificationEmail).not.toHaveBeenCalled();
   });
 });
 

@@ -48,7 +48,11 @@ This doc consolidates the security rules referenced in `CLAUDE.md` and expands o
 ### Account enumeration
 - Login, registration, forgot-password, and magic-link endpoints must return **generic responses** that don't reveal whether an email exists.
   - Forgot password: always return 200 with "If an account exists, we've sent a link."
-  - Login failures: always "Invalid email or password."
+  - Login failures: always "Invalid email or password." The one exception is an
+    unverified address, which is only reachable *after* a correct password and so
+    reveals nothing a caller did not already know.
+  - Resend verification: always return 200 with "If that address needs verifying,
+    we've sent a new link."
 - Timing: use constant-time comparison for tokens and password hashes (bcrypt does this for passwords; use `crypto.timingSafeEqual` elsewhere).
 
 ---
@@ -116,6 +120,7 @@ Backed by **Upstash Redis** (`lib/rate-limit.ts`). Applied per IP and, where rel
 | `POST /api/auth/register` | 3 per hour per IP |
 | `POST /api/auth/forgot-password` | 3 per hour per email |
 | `POST /api/auth/reset-password` | 5 per hour per IP |
+| `POST /api/auth/resend-verification` | 3 per hour per email |
 | Magic link request | 3 per hour per email |
 | Booking creation | 10 per hour per user |
 | Export endpoint | 20 per day per admin |

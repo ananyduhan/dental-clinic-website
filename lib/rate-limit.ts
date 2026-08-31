@@ -39,6 +39,10 @@ const LIMITS = {
   login: { window: Ratelimit.slidingWindow(5, "15 m"), prefix: "ratelimit:login" },
   register: { window: Ratelimit.slidingWindow(3, "1 h"), prefix: "ratelimit:register" },
   forgotPassword: { window: Ratelimit.slidingWindow(3, "1 h"), prefix: "ratelimit:forgot" },
+  resendVerification: {
+    window: Ratelimit.slidingWindow(3, "1 h"),
+    prefix: "ratelimit:resend-verification",
+  },
   resetPassword: { window: Ratelimit.slidingWindow(5, "1 h"), prefix: "ratelimit:reset" },
   booking: { window: Ratelimit.slidingWindow(10, "1 h"), prefix: "ratelimit:booking" },
   export: { window: Ratelimit.slidingWindow(20, "1 d"), prefix: "ratelimit:export" },

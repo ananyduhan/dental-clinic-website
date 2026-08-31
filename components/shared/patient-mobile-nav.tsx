@@ -28,7 +28,20 @@ export function PatientMobileNav() {
           <Link href="/appointments">Appointments</Link>
         </DropdownMenuItem>
         <DropdownMenuSeparator />
-        <DropdownMenuItem asChild>
+        {/*
+          `onSelect` must be prevented or this button does nothing at all.
+
+          Radix closes the menu synchronously while handling the click, which
+          unmounts the portalled content — and this `<form>` along with it. A
+          form detached from the document cannot be submitted, so the server
+          action never ran and the session stayed open. Preventing the default
+          `select` keeps the menu open long enough for the submit to fire;
+          `signOutAction` redirects to "/", which tears the menu down anyway.
+
+          The sidebar sign-out forms in the (patient) and (admin) layouts are
+          not inside a menu and never had this problem.
+        */}
+        <DropdownMenuItem asChild onSelect={(event) => event.preventDefault()}>
           <form action={signOutAction} className="w-full">
             <button type="submit" className="flex items-center gap-2 w-full text-[var(--color-error)]">
               <LogOut className="h-4 w-4" />

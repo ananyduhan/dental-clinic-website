@@ -31,6 +31,14 @@ export async function POST(req: NextRequest) {
     // 429 is not itself a probe: the limit applies to unknown addresses too.
     await enforceRateLimit("resendVerification", email.trim().toLowerCase());
 
+    // Unlike registration, a failed send here is *not* swallowed. The user
+    // pressed a button that means "send me mail"; answering "sent" when nothing
+    // was sent leaves them waiting on an email that will never arrive.
+    //
+    // The cost is a narrow enumeration signal: while the mail provider is
+    // failing, a known-unverified address 500s where an unknown one still 200s.
+    // That window only exists during a mail outage, and the alternative is
+    // silently stranding the very users this endpoint exists to rescue.
     await resendVerificationEmail(email);
 
     return NextResponse.json({ data: { message: GENERIC_RESPONSE } });

@@ -1,7 +1,7 @@
 import bcrypt from "bcryptjs";
 import { Role } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { ValidationError } from "@/lib/errors";
+import { ValidationError, reportServerError } from "@/lib/errors";
 import {
   PASSWORD_RESET_TOKEN_TTL_MS,
   VERIFICATION_TOKEN_TTL_MS,
@@ -60,7 +60,7 @@ export async function registerPatient(input: RegisterInput): Promise<void> {
           data: { emailVerified: true },
         });
       } else {
-        await issueVerificationToken(existing.id, email);
+        await issueVerificationToken(existing.id, email, { failOnSendError: false });
       }
     }
     return;
@@ -81,7 +81,7 @@ export async function registerPatient(input: RegisterInput): Promise<void> {
     select: { id: true },
   });
 
-  if (!isDemo) await issueVerificationToken(user.id, email);
+  if (!isDemo) await issueVerificationToken(user.id, email, { failOnSendError: false });
 }
 
 /**
@@ -89,8 +89,16 @@ export async function registerPatient(input: RegisterInput): Promise<void> {
  *
  * Older tokens for the user are deleted first, so a link only ever works until
  * the next one is requested.
+ *
+ * `failOnSendError` decides what a dead mail provider means for the caller. See
+ * the comment on the catch below — registration and an explicit resend want
+ * opposite answers.
  */
-async function issueVerificationToken(userId: string, email: string): Promise<void> {
+async function issueVerificationToken(
+  userId: string,
+  email: string,
+  { failOnSendError = true }: { failOnSendError?: boolean } = {},
+): Promise<void> {
   const { raw, hash } = generateToken();
 
   await prisma.$transaction([
@@ -101,9 +109,21 @@ async function issueVerificationToken(userId: string, email: string): Promise<vo
   ]);
 
   // Sending is outside the transaction on purpose: a slow mail provider should
-  // not hold a database transaction open. If this throws, the caller's request
-  // fails and the user retries — the token row is simply superseded next time.
-  await sendVerificationEmail(email, raw);
+  // not hold a database transaction open.
+  try {
+    await sendVerificationEmail(email, raw);
+  } catch (error) {
+    if (failOnSendError) throw error;
+
+    // Registration must survive this. The user row is already committed, so
+    // letting it through would 500 the request while leaving a real but
+    // unverified account behind — and the retry lands on the "already exists"
+    // branch, sends again, fails again, and strands that address permanently:
+    // unable to register, unable to sign in, told only "Internal server error".
+    // The token row is valid and the sign-in page offers a resend, so there is
+    // a way through; the failure belongs in Sentry, not in the user's face.
+    reportServerError(error, { route: "issueVerificationToken", userId });
+  }
 }
 
 /**

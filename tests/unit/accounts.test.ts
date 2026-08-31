@@ -301,6 +301,66 @@ describe("requestPasswordReset", () => {
   });
 });
 
+describe("registerPatient — mail provider down", () => {
+  // Regression: sending happens after `user.create` commits, so a throw here
+  // used to 500 the request and leave a real unverified account behind. The
+  // retry then hit the "already exists" branch, threw again, and stranded the
+  // address for good — unable to register, unable to sign in.
+  beforeEach(() => {
+    mail.sendVerificationEmail.mockRejectedValue(new Error("mail provider down"));
+  });
+
+  // `vi.clearAllMocks()` in the outer hook clears calls but leaves the
+  // implementation in place, so without this the rejection leaks into every
+  // describe below.
+  afterEach(() => {
+    mail.sendVerificationEmail.mockReset();
+  });
+
+  it("still creates the account when the verification email cannot be sent", async () => {
+    db.user.findUnique.mockResolvedValue(null);
+
+    await expect(registerPatient(VALID_REGISTRATION)).resolves.toBeUndefined();
+    expect(db.user.create).toHaveBeenCalledOnce();
+  });
+
+  it("still issues a token, so the sign-in page's resend has something to supersede", async () => {
+    db.user.findUnique.mockResolvedValue(null);
+
+    await registerPatient(VALID_REGISTRATION);
+
+    expect(db.verificationToken.create).toHaveBeenCalledOnce();
+  });
+
+  it("does not throw when re-registering an existing unverified address", async () => {
+    db.user.findUnique.mockResolvedValue({ id: "user-1", emailVerified: false });
+
+    await expect(registerPatient(VALID_REGISTRATION)).resolves.toBeUndefined();
+  });
+
+  it("reports the failure rather than swallowing it", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    db.user.findUnique.mockResolvedValue(null);
+
+    await registerPatient(VALID_REGISTRATION);
+
+    expect(consoleError).toHaveBeenCalled();
+    consoleError.mockRestore();
+  });
+
+  it("but an explicit resend still fails loudly — the user asked for a send", async () => {
+    db.user.findUnique.mockResolvedValue({
+      id: "user-1",
+      emailVerified: false,
+      passwordHash: "$2a$12$abc",
+    });
+
+    await expect(resendVerificationEmail("jane@example.com")).rejects.toThrow(
+      "mail provider down",
+    );
+  });
+});
+
 describe("resendVerificationEmail", () => {
   it("sends a fresh link to an unverified account", async () => {
     db.user.findUnique.mockResolvedValue({
